@@ -34,6 +34,8 @@ export interface FlowerCard extends BaseCard {
   color: FlowerColor;
   /** True for rainbow, triple_rainbow, bee-placed wildcards */
   isWildcard: boolean;
+  /** Persisted chosen color for placed wildcard flowers. */
+  representedColor?: FlowerColor;
 }
 
 export interface PowerCard extends BaseCard {
@@ -67,11 +69,41 @@ export interface Garden {
 
 // ── Player ───────────────────────────────────────────────────
 
+export interface PlayerMatchStats {
+  flowersPlanted: number;
+}
+
 export interface Player {
   id: string;
   name: string;
   hand: Card[];
   garden: Garden;
+  matchStats: PlayerMatchStats;
+}
+
+export interface MatchResultPlayerSummary {
+  playerId: string;
+  playerName: string;
+  won: boolean;
+  handCount: number;
+  gardenSetCount: number;
+  completeSetCount: number;
+  solidSetCount: number;
+  divineSetCount: number;
+  totalFlowers: number;
+  flowersPlanted: number;
+  isGodsFavourite: boolean;
+}
+
+export interface MatchResultSummary {
+  finishedAt: number;
+  durationSec: number;
+  winnerPlayerId: string | null;
+  winnerName: string | null;
+  seasonAtFinish: Season;
+  drawPileCount: number;
+  discardPileCount: number;
+  players: MatchResultPlayerSummary[];
 }
 
 // ── Actions ──────────────────────────────────────────────────
@@ -157,8 +189,10 @@ export interface PendingAction {
   coinFlipResult?: 'heads' | 'tails';
   /** If set, the target must choose card(s) before the action resolves. */
   selectionKind?: 'double_happiness_take' | 'trade_present';
-  /** Trade Present temporarily reveals the offered card to the target. */
+  /** Trade Present stores the offered card while the hidden exchange resolves. */
   offeredCard?: Card;
+  /** Milliseconds elapsed on the acting player's turn when the counter window opened. */
+  pausedTurnElapsedMs?: number;
   /** Played attacking cards stored while counter window resolves */
   playedCards?: Card[];
   /** Millisecond timestamp when the counter response window started */
@@ -173,6 +207,11 @@ export interface GameState {
   id: string;
   /** Millisecond timestamp when the match was created */
   gameStartedAt?: number;
+  roomName: string;
+  ownerPlayerId: string | null;
+  minPlayers: number;
+  maxPlayers: number;
+  readyPlayerIds: string[];
   players: Player[];
   /** Ordered list of player IDs for turn management */
   turnOrder: string[];
@@ -202,6 +241,8 @@ export interface GameState {
   turnTimeLimitSec: number;
   /** Set when the game ends */
   winner: string | null;
+  /** Frozen end-of-match snapshot used by the board results modal */
+  matchResult: MatchResultSummary | null;
   /** Human-readable event log */
   log: string[];
 }

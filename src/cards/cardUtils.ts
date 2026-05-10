@@ -41,7 +41,7 @@ export function isPower(c: Card, name: string): boolean {
 export function cardDetail(card: Card): string {
   if (card.kind === 'flower') {
     if (card.color === 'divine') return 'Divine flower — creates a protected divine set.';
-    if (card.color === 'triple_rainbow') return 'Triple rainbow — wildcard flower that can make combined sets solid.';
+    if (card.color === 'triple_rainbow') return 'Triple rainbow — can stand alone as a complete set, or take a chosen color like a rainbow flower. Combined sets with it become solid.';
     if (card.color === 'rainbow') return 'Rainbow — wildcard flower; you choose its color when planting.';
     return 'Flower card for building sets in a garden. Any 7-flower set becomes Divine, and any 7 different normal flower colors anywhere in your garden consume one of each color to create a token while those flowers return to discard.';
   }

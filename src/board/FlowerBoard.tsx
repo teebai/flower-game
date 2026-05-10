@@ -78,7 +78,7 @@ const MOVE_DETAILS: Record<string, { summary: string; steps: string[] }> = {
   },
   tradePresent: {
     summary: 'Offer 1 card from your hand; the target then chooses 1 of their own cards to exchange.',
-    steps: ['Pick Trade Present.', 'Pick the 1 card you are offering.', 'Choose the target player.'],
+    steps: ['Pick Trade Present.', 'Choose the target player.', 'Pick the 1 card you are offering, then confirm.'],
   },
   tradeFate: {
     summary: 'Swap your whole hand with another player.',
@@ -110,6 +110,8 @@ const MOVE_DETAILS: Record<string, { summary: string; steps: string[] }> = {
   },
 };
 
+const CHOOSABLE_FLOWER_COLORS: FlowerColor[] = ['blue', 'purple', 'red', 'orange', 'yellow', 'green', 'black'];
+
 function moveLabel(type: string): string {
   return MOVE_LABELS[type] ?? type.replace(/([A-Z])/g, ' $1').trim();
 }
@@ -123,6 +125,14 @@ function moveDetails(type: string): { summary: string; steps: string[] } {
 
 function flowerArt(color: FlowerColor): string | undefined {
   return DEFAULT_CARD_ART[`flower:${color}`];
+}
+
+function wildcardNeedsChosenColor(card: FlowerCard | null | undefined): boolean {
+  return !!card && card.isWildcard && card.color !== 'triple_rainbow';
+}
+
+function canChooseColorForNewSet(card: FlowerCard | null | undefined): boolean {
+  return !!card && (wildcardNeedsChosenColor(card) || card.color === 'triple_rainbow');
 }
 
 function InlineCardLabel({ card }: { card: Card }) {
@@ -323,15 +333,24 @@ function describeGardenSet(set: GardenSet | null | undefined): string {
   if (!set) return 'a garden set';
   if (set.isToken) return 'the token set';
   if (set.isDivine) return 'the Divine set';
-  const anchorFlower = set.flowers.find(f => f.color !== 'rainbow' && f.color !== 'triple_rainbow') ?? set.flowers[0];
-  const colorLabel = anchorFlower ? cardName(anchorFlower) : 'flower';
+  const colorLabel = gardenSetColor(set) ?? 'flower';
   return `${set.flowers.length}-flower ${colorLabel} set`;
+}
+
+function flowerDisplayColor(flower: FlowerCard): FlowerColor {
+  return flower.representedColor ?? flower.color;
 }
 
 function gardenSetColor(set: GardenSet): FlowerColor | null {
   if (set.isToken) return null;
-  const anchorFlower = set.flowers.find(f => f.color !== 'rainbow' && f.color !== 'triple_rainbow');
-  return anchorFlower ? anchorFlower.color : null;
+  const anchorFlower = set.flowers.find(f => {
+    const displayColor = flowerDisplayColor(f);
+    return displayColor !== 'rainbow' && displayColor !== 'triple_rainbow' && displayColor !== 'divine';
+  }) ?? set.flowers.find(f => {
+    const displayColor = flowerDisplayColor(f);
+    return displayColor !== 'triple_rainbow' && displayColor !== 'divine';
+  });
+  return anchorFlower ? flowerDisplayColor(anchorFlower) : null;
 }
 
 function gardenDensityClass(count: number): string {
@@ -573,6 +592,13 @@ type DragPreview = {
   height: number;
 };
 
+const CARD_GESTURE_DEADZONE_PX = 9;
+const CARD_PLAY_LIFT_PX = 14;
+const CARD_SCROLL_INTENT_PX = 14;
+const CARD_REORDER_INTENT_PX = 10;
+
+type PointerDragMode = 'pending' | 'reorder' | 'play' | 'scroll';
+
 type PointerDragSession = {
   cardId: string;
   pointerId: number;
@@ -582,8 +608,27 @@ type PointerDragSession = {
   offsetY: number;
   width: number;
   height: number;
+  canPlay: boolean;
+  canReorder: boolean;
+  mode: PointerDragMode;
   dragging: boolean;
 };
+
+type ArenaTouchSession =
+  | {
+      mode: 'pan';
+      startX: number;
+      startY: number;
+      startPanX: number;
+      startPanY: number;
+    }
+  | {
+      mode: 'pinch';
+      startDistance: number;
+      startZoom: number;
+      contentX: number;
+      contentY: number;
+    };
 
 type GardenDropHit = {
   playerId: string;
@@ -676,12 +721,13 @@ function SetChip({
         </span>
       )}
       {!set.isToken && visibleFlowers.map(f => {
-        const art = flowerArt(f.color);
+        const displayColor = flowerDisplayColor(f);
+        const art = flowerArt(displayColor);
         return (
-          <span key={f.id} title={f.color} className="mini-flower-token">
+          <span key={f.id} title={displayColor} className="mini-flower-token">
             {art
-              ? <img src={art} alt={f.color} />
-              : <span>{FLOWER_EMOJI[f.color] ?? '🌺'}</span>}
+              ? <img src={art} alt={displayColor} />
+              : <span>{FLOWER_EMOJI[displayColor] ?? '🌺'}</span>}
           </span>
         );
       })}
@@ -745,6 +791,15 @@ function formatElapsedClock(totalSeconds: number): string {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatSeasonLabel(season: GameState['season']): string {
+  if (!season) return 'None';
+  return season.charAt(0).toUpperCase() + season.slice(1);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected }: FlowerBoardProps) {
@@ -844,7 +899,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const [logOpen, setLogOpen] = useState(false);
   const [chatUnread, setChatUnread] = useState(0);
   const [logUnread, setLogUnread] = useState(0);
-  const [modalOpen, setModalOpen] = useState<'menu' | 'rules' | null>(null);
+  const [modalOpen, setModalOpen] = useState<'menu' | 'rules' | 'results' | null>(null);
   const [playerInfoPlayerId, setPlayerInfoPlayerId] = useState<string | null>(null);
 
   // ── Chat state ────────────────────────────────────────────
@@ -870,6 +925,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const [settlingGardens, setSettlingGardens] = useState<Record<string, GardenSettleState>>({});
   const [scenePulse, setScenePulse] = useState<string | null>(null);
   const [arenaZoom, setArenaZoom] = useState(1);
+  const [arenaPan, setArenaPan] = useState({ x: 0, y: 0 });
   const [viewport, setViewport] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1440,
     height: typeof window !== 'undefined' ? window.innerHeight : 900,
@@ -891,7 +947,9 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const gardenSetRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const handCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const arenaRef = useRef<HTMLDivElement | null>(null);
-  const arenaPinchZoomRef = useRef<{ startDistance: number; startZoom: number } | null>(null);
+  const arenaPanRef = useRef(arenaPan);
+  const arenaZoomRef = useRef(arenaZoom);
+  const arenaTouchSessionRef = useRef<ArenaTouchSession | null>(null);
   const dragSessionRef = useRef<PointerDragSession | null>(null);
   const dragPreviewFrameRef = useRef<number | null>(null);
   const pendingDragPreviewRef = useRef<DragPreview | null>(null);
@@ -906,13 +964,40 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const gardenSettleTimersRef = useRef<Record<string, number>>({});
   const previousLogLengthRef = useRef<number>(G.log.length);
   const pendingLocalPlantSoundLogSkipsRef = useRef<number>(0);
+  const autoOpenedMatchResultRef = useRef<number | null>(null);
+  const handDockRef = useRef<HTMLDivElement | null>(null);
+  const handRowRef = useRef<HTMLDivElement | null>(null);
+  const [handOrderIds, setHandOrderIds] = useState<string[]>([]);
+  const [handInfoCardId, setHandInfoCardId] = useState<string | null>(null);
+  const [handInfoAnchor, setHandInfoAnchor] = useState(0.5);
   const clampArenaZoom = (next: number) => Math.max(0.82, Math.min(1.75, Number(next.toFixed(2))));
-  const adjustArenaZoom = (delta: number) => {
-    setArenaZoom(current => clampArenaZoom(current + delta));
+  const adjustArenaZoom = (delta: number, focus?: { clientX: number; clientY: number }) => {
+    const nextZoom = clampArenaZoom(arenaZoomRef.current + delta);
+    if (!focus || !arenaRef.current) {
+      setArenaZoom(nextZoom);
+      return;
+    }
+
+    const rect = arenaRef.current.getBoundingClientRect();
+    const screenX = focus.clientX - rect.left - (rect.width / 2);
+    const screenY = focus.clientY - rect.top - (rect.height / 2);
+    const currentPan = arenaPanRef.current;
+    const contentX = (screenX - currentPan.x) / arenaZoomRef.current;
+    const contentY = (screenY - currentPan.y) / arenaZoomRef.current;
+
+    setArenaZoom(nextZoom);
+    setArenaPan({
+      x: screenX - (contentX * nextZoom),
+      y: screenY - (contentY * nextZoom),
+    });
   };
-  const resetArenaZoom = () => {
-    setArenaZoom(1);
-  };
+  useEffect(() => {
+    arenaPanRef.current = arenaPan;
+  }, [arenaPan]);
+
+  useEffect(() => {
+    arenaZoomRef.current = arenaZoom;
+  }, [arenaZoom]);
 
   useEffect(() => {
     const arenaNode = arenaRef.current;
@@ -926,40 +1011,120 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       return Math.hypot(dx, dy);
     };
 
-    const onTouchStart = (event: TouchEvent) => {
-      if (event.touches.length !== 2) return;
-      arenaPinchZoomRef.current = {
-        startDistance: touchDistance(event.touches),
-        startZoom: arenaZoom,
+    const touchCenter = (touches: TouchList) => {
+      const [a, b] = [touches[0], touches[1]];
+      return {
+        x: (a.clientX + b.clientX) / 2,
+        y: (a.clientY + b.clientY) / 2,
       };
     };
 
-    const onTouchMove = (event: TouchEvent) => {
-      if (event.touches.length !== 2 || !arenaPinchZoomRef.current) return;
-      const currentDistance = touchDistance(event.touches);
-      const baseDistance = arenaPinchZoomRef.current.startDistance;
-      if (!baseDistance) return;
-      event.preventDefault();
-      const pinchScale = currentDistance / baseDistance;
-      setArenaZoom(clampArenaZoom(arenaPinchZoomRef.current.startZoom * pinchScale));
+    const startPinch = (touches: TouchList) => {
+      const rect = arenaNode.getBoundingClientRect();
+      const center = touchCenter(touches);
+      const screenX = center.x - rect.left - (rect.width / 2);
+      const screenY = center.y - rect.top - (rect.height / 2);
+      const currentPan = arenaPanRef.current;
+
+      arenaTouchSessionRef.current = {
+        mode: 'pinch',
+        startDistance: touchDistance(touches),
+        startZoom: arenaZoomRef.current,
+        contentX: (screenX - currentPan.x) / arenaZoomRef.current,
+        contentY: (screenY - currentPan.y) / arenaZoomRef.current,
+      };
     };
 
-    const clearPinch = () => {
-      arenaPinchZoomRef.current = null;
+    const onTouchStart = (event: TouchEvent) => {
+      if (pointerDragActive) return;
+      if (event.touches.length === 1) {
+        const touch = event.touches[0];
+        arenaTouchSessionRef.current = {
+          mode: 'pan',
+          startX: touch.clientX,
+          startY: touch.clientY,
+          startPanX: arenaPanRef.current.x,
+          startPanY: arenaPanRef.current.y,
+        };
+        return;
+      }
+      if (event.touches.length === 2) {
+        startPinch(event.touches);
+      }
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (pointerDragActive) return;
+      const session = arenaTouchSessionRef.current;
+      if (!session) return;
+
+      if (session.mode === 'pan' && event.touches.length === 1) {
+        const touch = event.touches[0];
+        event.preventDefault();
+        setArenaPan({
+          x: session.startPanX + (touch.clientX - session.startX),
+          y: session.startPanY + (touch.clientY - session.startY),
+        });
+        return;
+      }
+
+      if (event.touches.length !== 2) return;
+      if (session.mode !== 'pinch') {
+        startPinch(event.touches);
+      }
+      const pinchSession = arenaTouchSessionRef.current;
+      if (!pinchSession || pinchSession.mode !== 'pinch' || !pinchSession.startDistance) return;
+
+      event.preventDefault();
+      const currentDistance = touchDistance(event.touches);
+      const nextZoom = clampArenaZoom(pinchSession.startZoom * (currentDistance / pinchSession.startDistance));
+      const rect = arenaNode.getBoundingClientRect();
+      const center = touchCenter(event.touches);
+      const screenX = center.x - rect.left - (rect.width / 2);
+      const screenY = center.y - rect.top - (rect.height / 2);
+
+      setArenaZoom(nextZoom);
+      setArenaPan({
+        x: screenX - (pinchSession.contentX * nextZoom),
+        y: screenY - (pinchSession.contentY * nextZoom),
+      });
+    };
+
+    const syncTouchSession = (event: TouchEvent) => {
+      if (pointerDragActive) {
+        arenaTouchSessionRef.current = null;
+        return;
+      }
+      if (event.touches.length === 1) {
+        const touch = event.touches[0];
+        arenaTouchSessionRef.current = {
+          mode: 'pan',
+          startX: touch.clientX,
+          startY: touch.clientY,
+          startPanX: arenaPanRef.current.x,
+          startPanY: arenaPanRef.current.y,
+        };
+        return;
+      }
+      if (event.touches.length === 2) {
+        startPinch(event.touches);
+        return;
+      }
+      arenaTouchSessionRef.current = null;
     };
 
     arenaNode.addEventListener('touchstart', onTouchStart, { passive: true });
     arenaNode.addEventListener('touchmove', onTouchMove, { passive: false });
-    arenaNode.addEventListener('touchend', clearPinch);
-    arenaNode.addEventListener('touchcancel', clearPinch);
+    arenaNode.addEventListener('touchend', syncTouchSession);
+    arenaNode.addEventListener('touchcancel', syncTouchSession);
 
     return () => {
       arenaNode.removeEventListener('touchstart', onTouchStart);
       arenaNode.removeEventListener('touchmove', onTouchMove);
-      arenaNode.removeEventListener('touchend', clearPinch);
-      arenaNode.removeEventListener('touchcancel', clearPinch);
+      arenaNode.removeEventListener('touchend', syncTouchSession);
+      arenaNode.removeEventListener('touchcancel', syncTouchSession);
     };
-  }, [arenaZoom]);
+  }, [pointerDragActive]);
   const awaitingMoveResolutionRef = useRef<{
     phase: GameState['phase'];
     logLength: number;
@@ -1040,6 +1205,51 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     clearProximity();
   }
 
+  function pointInsideHandReorderZone(clientX: number, clientY: number) {
+    const handRow = handRowRef.current;
+    if (!handRow) return false;
+    const rect = handRow.getBoundingClientRect();
+    return (
+      clientX >= rect.left - 28
+      && clientX <= rect.right + 28
+      && clientY >= rect.top - 36
+      && clientY <= rect.bottom + 36
+    );
+  }
+
+  function reorderHandCard(cardId: string, clientX: number) {
+    setHandOrderIds(prev => {
+      const current = prev.length > 0 ? [...prev] : myHand.map(card => card.id);
+      if (!current.includes(cardId)) return current;
+      const remaining = current.filter(id => id !== cardId);
+      let insertIndex = remaining.length;
+
+      for (let i = 0; i < remaining.length; i += 1) {
+        const rect = handCardRefs.current[remaining[i]]?.getBoundingClientRect();
+        if (!rect) continue;
+        if (clientX < rect.left + (rect.width / 2)) {
+          insertIndex = i;
+          break;
+        }
+      }
+
+      remaining.splice(insertIndex, 0, cardId);
+      return remaining;
+    });
+  }
+
+  function showHandCardInfo(cardId: string) {
+    const dockRect = handDockRef.current?.getBoundingClientRect();
+    const cardRect = handCardRefs.current[cardId]?.getBoundingClientRect();
+    if (dockRect && cardRect && dockRect.width > 0) {
+      const centerRatio = (cardRect.left + (cardRect.width / 2) - dockRect.left) / dockRect.width;
+      setHandInfoAnchor(clampNumber(centerRatio, 0.16, 0.84));
+    } else {
+      setHandInfoAnchor(0.5);
+    }
+    setHandInfoCardId(cardId);
+  }
+
   function suppressNextCardClick(cardId: string) {
     suppressCardClickRef.current = cardId;
     window.setTimeout(() => {
@@ -1052,6 +1262,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     setTargetPlayer(''); setTargetSet(''); setWindExtraTargetSets([]); clearDropHover(); setChosenColor(''); setDiscardChoice(''); setWindAttackDoubleMode(false); setDoubleHappinessMode(''); setError('');
     dragSessionRef.current = null;
     setPointerDragActive(false);
+    setHandInfoCardId(null);
     setArmedCardId(null); clearDragState();
   }
 
@@ -1059,8 +1270,34 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     setBlessingStep('pick'); setBlessingPicked([]); setBlessingArranged([]);
   }
 
+  function beginTradePresentFlow(tradeCardId?: string, targetPlayerId = '') {
+    if (!me) return;
+    const tradeCard = tradeCardId
+      ? me.hand.find(card => card.id === tradeCardId && isPower(card, 'trade_present'))
+      : me.hand.find(card => isPower(card, 'trade_present'));
+    if (!tradeCard) {
+      setError('You need a Trade Present card to start this move.');
+      return;
+    }
+
+    setMoveType('tradePresent');
+    setPickedCards([tradeCard.id]);
+    setTargetPlayer(targetPlayerId);
+    setTargetSet('');
+    setWindExtraTargetSets([]);
+    setChosenColor('');
+    setDiscardChoice('');
+    setDoubleHappinessMode('');
+    setError('');
+    setArmedCardId(tradeCard.id);
+    setHandInfoCardId(null);
+    clearDragState();
+    setStep(targetPlayerId ? 'pick-card' : 'pick-target');
+  }
+
   function moveBlessingCard(idx: number, dir: -1 | 1) {
-    const arr = [...blessingArranged];
+    const fallbackOrder = G.blessingState?.revealedCards.map(card => card.id) ?? [];
+    const arr = [...(blessingArranged.length > 0 ? blessingArranged : fallbackOrder)];
     const swapIdx = idx + dir;
     if (swapIdx < 0 || swapIdx >= arr.length) return;
     [arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]];
@@ -1114,28 +1351,49 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const targetablePlayers = moveType === 'playBee' && me ? [me, ...opponents] : opponents;
   const hasNaturalDisasterTarget = opponents.some(p => p.garden.sets.some(s => !s.isDivine));
   const theme = getSeasonTheme(G.season);
+  const matchResult = G.matchResult;
+  const isGameOver = G.phase === 'game_over';
+  const finalClockMs = matchResult?.finishedAt ?? nowMs;
   const turnStartedAt = G.turnStartedAt ?? Date.now();
-  const turnTimeLimitSec = Math.max(90, G.turnTimeLimitSec ?? 0);
+  const turnTimeLimitSec = Math.max(60, G.turnTimeLimitSec ?? 0);
   const counterStartedAt = G.phase === 'counter' ? G.pendingAction?.startedAt ?? null : null;
   const counterTimeLimitSec = G.phase === 'counter' ? Math.max(1, G.pendingAction?.responseTimeLimitSec ?? 14) : null;
   const turnDeadlineMs = counterStartedAt != null
     ? counterStartedAt + (counterTimeLimitSec! * 1000)
     : turnStartedAt + (turnTimeLimitSec * 1000);
-  const turnRemainingSec = Math.max(0, Math.ceil((turnDeadlineMs - nowMs) / 1000));
-  const turnTimerLabel = `${String(Math.floor(turnRemainingSec / 60)).padStart(2, '0')}:${String(turnRemainingSec % 60).padStart(2, '0')}`;
+  const turnRemainingSec = isGameOver ? 0 : Math.max(0, Math.ceil((turnDeadlineMs - finalClockMs) / 1000));
   const totalTimerStartMs = G.gameStartedAt && G.gameStartedAt > 0 ? G.gameStartedAt : turnStartedAt;
-  const totalElapsedSec = Math.max(0, Math.floor((nowMs - totalTimerStartMs) / 1000));
+  const totalElapsedSec = matchResult
+    ? matchResult.durationSec
+    : Math.max(0, Math.floor((finalClockMs - totalTimerStartMs) / 1000));
   const totalTimerLabel = formatElapsedClock(totalElapsedSec);
+  const turnTimerLabel = isGameOver
+    ? totalTimerLabel
+    : `${String(Math.floor(turnRemainingSec / 60)).padStart(2, '0')}:${String(turnRemainingSec % 60).padStart(2, '0')}`;
   const timerPlayerId = G.phase === 'counter' && G.pendingAction
     ? G.pendingAction.targetPlayerId
     : G.turnOrder[G.currentPlayerIndex];
   const activePlayer = G.players.find(p => p.id === timerPlayerId) ?? null;
-  const timerLabel = G.phase === 'counter'
+  const timerLabel = isGameOver
+    ? 'Match complete'
+    : G.phase === 'counter'
     ? `Waiting on ${activePlayer ? nameOf(activePlayer) : 'counter'}`
     : myTurn
       ? 'Your turn'
       : nameOf(G.players.find(p => p.id === G.turnOrder[G.currentPlayerIndex]));
-  const myHand = me?.hand ?? [];
+  const resultWinnerLabel = matchResult?.winnerName
+    ?? nameOf(G.players.find(player => player.id === G.winner))
+    ?? 'Unknown';
+  const myHandRaw = me?.hand ?? [];
+  const myHand = useMemo(() => {
+    if (myHandRaw.length === 0) return [];
+    const byId = new Map(myHandRaw.map(card => [card.id, card]));
+    const ordered = handOrderIds
+      .map(id => byId.get(id))
+      .filter((card): card is Card => !!card);
+    const missing = myHandRaw.filter(card => !handOrderIds.includes(card.id));
+    return [...ordered, ...missing];
+  }, [handOrderIds, myHandRaw]);
   const selectedPrimaryWindCard = moveType === 'playWindSingle'
     ? myHand.find(card => card.id === pickedCards[0] && isPower(card, 'wind')) ?? null
     : null;
@@ -1189,6 +1447,10 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     ? attackedGardenPlayer.garden.sets.find(set => set.id === attackedGardenSetId) ?? null
     : null;
   const attackedSetLabel = describeGardenSet(attackedGardenSet);
+  const selectedHandInfoCard = handInfoCardId
+    ? myHand.find(card => card.id === handInfoCardId) ?? null
+    : null;
+  const showHandInfoCard = !myTurn && selectedHandInfoCard;
 
   function showArenaToast(text: string, key: string) {
     if (arenaLogToastTimerRef.current !== null) {
@@ -1218,7 +1480,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     const target = G.players.find(p => p.id === targetPlayerId);
     if (!target) return currentTargetSetId;
 
-    if (!card.isWildcard) {
+    if (!card.isWildcard && card.color !== 'triple_rainbow') {
       const fallbackSet = target.garden.sets.find(set => !set.isDivine && gardenSetColor(set) === card.color);
       return fallbackSet?.id ?? '';
     }
@@ -1294,6 +1556,9 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
 
   function startCardPointerSession(cardId: string, event: React.PointerEvent<HTMLDivElement>) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const canPlay = myTurn && G.phase === 'action';
+    const canReorder = !myTurn;
+    if (!canPlay && !canReorder) return;
     const sourceEl = handCardRefs.current[cardId];
     if (!sourceEl) return;
     const rect = sourceEl.getBoundingClientRect();
@@ -1306,14 +1571,14 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       offsetY: event.clientY - rect.top,
       width: rect.width,
       height: rect.height,
+      canPlay,
+      canReorder,
+      mode: 'pending',
       dragging: false,
     };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setHandInfoCardId(null);
     setPointerDragActive(true);
-  }
-
-  function armCard(cardId: string) {
-    setError('');
-    setArmedCardId(prev => prev === cardId ? null : cardId);
   }
 
   function handleHandCardClick(cardId: string) {
@@ -1321,7 +1586,19 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       suppressCardClickRef.current = null;
       return;
     }
-    armCard(cardId);
+    setError('');
+    setArmedCardId(prev => prev === cardId ? null : cardId);
+    if (myTurn) {
+      setHandInfoCardId(null);
+      return;
+    }
+    setHandInfoCardId(prev => {
+      const next = prev === cardId ? null : cardId;
+      if (next) {
+        window.requestAnimationFrame(() => showHandCardInfo(cardId));
+      }
+      return next;
+    });
   }
 
   function moveTypeFromCard(card: Card, targetPlayerId: string): string | null {
@@ -1338,6 +1615,21 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     if (isPower(card, 'eclipse')) return 'playEclipse';
     if (isPower(card, 'great_reset')) return 'playGreatReset';
     return null;
+  }
+
+  function moveNeedsTargetPlayer(type: string) {
+    return [
+      'plantOpponent', 'playWindSingle', 'playWindDouble', 'playBug', 'playBee',
+      'naturalDisaster', 'tradePresent', 'tradeFate', 'doubleHappiness', 'doubleHappinessTake', 'doubleHappinessGive',
+    ].includes(type);
+  }
+
+  function moveRequiresTargetSet(type: string) {
+    return ['playWindSingle', 'playWindDouble', 'playBug', 'naturalDisaster'].includes(type);
+  }
+
+  function moveUsesEditableSetTarget(type: string) {
+    return ['playWindSingle', 'playWindDouble', 'playBug', 'playBee', 'naturalDisaster'].includes(type);
   }
 
   function isValidTargetSetForMove(type: string, set: GardenSet) {
@@ -1375,11 +1667,18 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     if (!card) return;
     const nextMove = moveTypeFromCard(card, targetPlayerId);
     if (!nextMove) return;
-    const resolvedTargetSetId = resolvePlantTargetSetId(cardId, targetPlayerId, targetSetId);
+    const stagedTargetPlayerId = isFlower(card) || moveNeedsTargetPlayer(nextMove)
+      ? targetPlayerId
+      : '';
+    const resolvedTargetSetId = isFlower(card)
+      ? resolvePlantTargetSetId(cardId, targetPlayerId, targetSetId)
+      : moveRequiresTargetSet(nextMove)
+        ? targetSetId
+        : '';
 
     setMoveType(nextMove);
     setPickedCards([card.id]);
-    setTargetPlayer(targetPlayerId);
+    setTargetPlayer(stagedTargetPlayerId);
     setTargetSet(resolvedTargetSetId);
     setWindExtraTargetSets([]);
     setChosenColor('');
@@ -1395,8 +1694,14 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       return;
     }
 
-    if (nextMove === 'playBee' || nextMove === 'tradePresent') {
+    if (nextMove === 'playBee') {
       setStep('pick-card');
+      clearDragState();
+      return;
+    }
+
+    if (nextMove === 'tradePresent') {
+      setStep(targetPlayerId ? 'pick-card' : 'pick-target');
       clearDragState();
       return;
     }
@@ -1407,7 +1712,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       return;
     }
 
-    if ((nextMove === 'playWindSingle' || nextMove === 'playBug' || nextMove === 'naturalDisaster') && !targetSetId) {
+    if (moveRequiresTargetSet(nextMove) && !resolvedTargetSetId) {
       setStep('pick-target');
       clearDragState();
       return;
@@ -1436,6 +1741,41 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   }, [G.pendingAction?.selectionKind, G.pendingAction?.original.type, G.phase]);
 
   useEffect(() => {
+    const nextIds = myHandRaw.map(card => card.id);
+    setHandOrderIds(prev => {
+      const kept = prev.filter(id => nextIds.includes(id));
+      const appended = nextIds.filter(id => !kept.includes(id));
+      const merged = [...kept, ...appended];
+      return merged.length === prev.length && merged.every((id, index) => id === prev[index]) ? prev : merged;
+    });
+  }, [myHandRaw]);
+
+  useEffect(() => {
+    if (!handInfoCardId) return;
+    if (myHand.some(card => card.id === handInfoCardId)) return;
+    setHandInfoCardId(null);
+  }, [handInfoCardId, myHand]);
+
+  useEffect(() => {
+    if (!handInfoCardId || myTurn) return;
+    const currentHandInfoCardId = handInfoCardId;
+    function handleGlobalPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const selectedCard = handCardRefs.current[currentHandInfoCardId];
+      if (selectedCard?.contains(target)) return;
+      setHandInfoCardId(null);
+    }
+    window.addEventListener('pointerdown', handleGlobalPointerDown, true);
+    return () => window.removeEventListener('pointerdown', handleGlobalPointerDown, true);
+  }, [handInfoCardId, myTurn]);
+
+  useEffect(() => {
+    if (!myTurn) return;
+    setHandInfoCardId(null);
+  }, [myTurn]);
+
+  useEffect(() => {
     if (moveType !== 'playWindSingle' && windAttackDoubleMode) {
       setWindAttackDoubleMode(false);
     }
@@ -1452,6 +1792,13 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       setDoubleHappinessMode('');
     }
   }, [moveType, doubleHappinessMode]);
+
+  useEffect(() => {
+    if (moveUsesEditableSetTarget(effectiveMoveType) || moveType === 'plantOwn' || moveType === 'plantOpponent') return;
+    if (!targetSet && windExtraTargetSets.length === 0) return;
+    setTargetSet('');
+    setWindExtraTargetSets([]);
+  }, [effectiveMoveType, moveType, targetSet, windExtraTargetSets.length]);
 
   useEffect(() => {
     if (moveType === 'playWindSingle' && windAttackDoubleMode && !canUpgradeSingleWind) {
@@ -1552,10 +1899,25 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   }, [G.log.length]);
 
   useEffect(() => {
+    if (matchResult?.finishedAt) {
+      setNowMs(matchResult.finishedAt);
+      return undefined;
+    }
+
     setNowMs(Date.now());
     const interval = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [matchResult?.finishedAt]);
+
+  useEffect(() => {
+    if (!matchResult) return;
+    if (autoOpenedMatchResultRef.current === matchResult.finishedAt) return;
+    autoOpenedMatchResultRef.current = matchResult.finishedAt;
+    resetAll();
+    resetBlessing();
+    setPlayerInfoPlayerId(null);
+    setModalOpen('results');
+  }, [matchResult]);
 
   useEffect(() => {
     if (!pointerDragActive) return undefined;
@@ -1566,11 +1928,41 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
 
       const dx = event.clientX - session.startX;
       const dy = event.clientY - session.startY;
-      if (!session.dragging) {
-        if (Math.hypot(dx, dy) < 10) return;
+      if (session.mode === 'pending') {
+        const absX = Math.abs(dx);
+        const absY = Math.abs(dy);
+        if (Math.hypot(dx, dy) < CARD_GESTURE_DEADZONE_PX) return;
+
+        if (session.canPlay) {
+          const pulledUp = dy <= -CARD_PLAY_LIFT_PX && absY >= absX * 0.7;
+          const scrollingSideways = absX >= CARD_SCROLL_INTENT_PX && absX > absY;
+          session.mode = pulledUp ? 'play' : scrollingSideways ? 'scroll' : 'pending';
+        } else if (session.canReorder) {
+          const reorderingSideways = absX >= CARD_REORDER_INTENT_PX && absX >= absY * 0.8;
+          session.mode = reorderingSideways && pointInsideHandReorderZone(event.clientX, event.clientY)
+            ? 'reorder'
+            : 'pending';
+        }
+
+        if (session.mode === 'pending') return;
+        if (session.mode === 'scroll') {
+          dragSessionRef.current = null;
+          setPointerDragActive(false);
+          return;
+        }
         session.dragging = true;
-        setDraggingCardId(session.cardId);
-        setArmedCardId(session.cardId);
+        if (session.mode === 'play') {
+          setDraggingCardId(session.cardId);
+          setArmedCardId(session.cardId);
+        } else {
+          reorderHandCard(session.cardId, event.clientX);
+        }
+      }
+
+      if (session.mode === 'reorder') {
+        event.preventDefault();
+        reorderHandCard(session.cardId, event.clientX);
+        return;
       }
 
       event.preventDefault();
@@ -1590,7 +1982,8 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       if (!session || event.pointerId !== session.pointerId) return;
 
       const wasDragging = session.dragging;
-      const dropTarget = wasDragging ? hitTestGardenDrop(event.clientX, event.clientY) : null;
+      const dropTarget = session.mode === 'play' && wasDragging ? hitTestGardenDrop(event.clientX, event.clientY) : null;
+      const endedInReorder = session.mode === 'reorder' && wasDragging;
 
       dragSessionRef.current = null;
       setPointerDragActive(false);
@@ -1599,6 +1992,10 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       if (!wasDragging) return;
 
       suppressNextCardClick(session.cardId);
+      if (endedInReorder) {
+        showHandCardInfo(session.cardId);
+        return;
+      }
       if (dropTarget) {
         stagePlayFromCard(session.cardId, dropTarget.playerId, dropTarget.setId);
       }
@@ -1960,7 +2357,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   // ── Cards filtered by move type ──────────────────────────────
   function relevantCards(type: string): Card[] {
     if (!me) return [];
-    const hand = me.hand;
+    const hand = myHand;
     if (type === 'plantOwn' || type === 'plantOpponent') return hand.filter(isFlower);
     if (type === 'playWindSingle') return hand.filter(c => isPower(c, 'wind'));
     if (type === 'playWindDouble') return hand.filter(c => isPower(c, 'wind'));
@@ -1981,29 +2378,57 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     return [];
   }
 
-  const needsTargetPlayer = [
-    'plantOpponent','playWindSingle','playWindDouble','playBug','playBee',
-    'naturalDisaster','tradePresent','tradeFate','doubleHappiness','doubleHappinessTake','doubleHappinessGive',
-  ].includes(moveType);
+  const needsTargetPlayer = moveNeedsTargetPlayer(moveType);
 
-  const requiresTargetSet = ['playWindSingle','playWindDouble','playBug','naturalDisaster'].includes(moveType);
+  const requiresTargetSet = moveRequiresTargetSet(effectiveMoveType);
 
   const needsColor = (type: string) => {
     if (type === 'playBee') return true;
     const cardId = pickedCards[0];
     if (!cardId || !me) return false;
     const card = me.hand.find(c => c.id === cardId);
-    return !!card && isFlower(card) && card.isWildcard;
+    return !!card && isFlower(card) && wildcardNeedsChosenColor(card);
   };
 
   const selectedCards = pickedCards
     .map(id => me?.hand.find(card => card.id === id))
     .filter((card): card is Card => !!card);
+  const selectedPrimaryFlower = (() => {
+    const card = selectedCards[0];
+    return card && isFlower(card) ? card : null;
+  })();
+  const selectedTradePresentCard = moveType === 'tradePresent'
+    ? (() => {
+        const explicit = pickedCards[0];
+        return (explicit ? myHand.find(card => card.id === explicit) : null) ?? selectedCards.find(card => isPower(card, 'trade_present')) ?? null;
+      })()
+    : null;
+  const selectedTradePresentOfferCard = moveType === 'tradePresent'
+    ? selectedCards.find(card => card.id !== selectedTradePresentCard?.id) ?? null
+    : null;
   const selectedTargetPlayer = G.players.find(p => p.id === targetPlayer) ?? null;
   const effectiveTargetSetId = moveType === 'plantOwn' || moveType === 'plantOpponent' || moveType === 'playBee'
     ? resolvePlantTargetSetId(pickedCards[0] ?? '', targetPlayer || playerID || '', targetSet)
     : targetSet;
   const selectedTargetSet = selectedTargetPlayer?.garden.sets.find(set => set.id === effectiveTargetSetId) ?? null;
+  const selectedBeeDiscardFlower = discardChoice
+    ? beeDiscardFlowers.find(card => card.id === discardChoice) ?? null
+    : null;
+  const plantTargetPlayer = moveType === 'plantOwn'
+    ? me ?? null
+    : moveType === 'plantOpponent'
+      ? selectedTargetPlayer
+      : null;
+  const plantEditableSets = plantTargetPlayer?.garden.sets.filter(set => !set.isDivine) ?? [];
+  const regularPlantAutoTargetSet = moveType === 'plantOwn' || moveType === 'plantOpponent'
+    ? selectedTargetSet
+    : null;
+  const plantNeedsColorForNewSet = (moveType === 'plantOwn' || moveType === 'plantOpponent')
+    && canChooseColorForNewSet(selectedPrimaryFlower)
+    && !effectiveTargetSetId;
+  const beeNeedsColorForNewSet = moveType === 'playBee'
+    && !!selectedBeeDiscardFlower
+    && !effectiveTargetSetId;
   const selectedWindTargetSetIds = effectiveMoveType === 'playWindDouble'
     ? [targetSet, ...windExtraTargetSets].filter((setId): setId is string => !!setId)
     : targetSet
@@ -2040,7 +2465,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     if (requiresTargetSet && !targetSet) { setError('Select a target set'); return; }
     if (moveType === 'doubleHappiness' && !doubleHappinessMode) { setError('Choose whether Double Happiness will Take 2 or Give 2.'); return; }
     if (moveType === 'playBee' && !discardChoice) { setError('Select a flower from the discard pile'); return; }
-    if (moveType === 'playBee' && !targetSet && !chosenColor) {
+    if (beeNeedsColorForNewSet && !chosenColor) {
       setError('Choose a color when Bee starts a new set');
       return;
     }
@@ -2058,6 +2483,13 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     const resolvedTargetSet = (moveType === 'plantOwn' || moveType === 'plantOpponent' || moveType === 'playBee')
       ? resolvePlantTargetSetId(c1, targetPlayer || playerID || '', targetSet)
       : targetSet;
+    if ((moveType === 'plantOwn' || moveType === 'plantOpponent')
+      && wildcardNeedsChosenColor(selectedPrimaryFlower)
+      && !resolvedTargetSet
+      && !chosenColor) {
+      setError('Choose a color when Rainbow starts a new set');
+      return;
+    }
 
     const pickedHandCards = pickedCards
       .map(id => me?.hand.find(card => card.id === id))
@@ -2111,15 +2543,15 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         break;
       }
       case 'doubleHappinessGive': {
-        const dhCard = pickedHandCards.find(card => isPower(card, 'double_happiness'));
-        const giveIds = pickedHandCards.filter(card => !isPower(card, 'double_happiness')).map(card => card.id);
-        if (!dhCard || giveIds.length !== 2) { setError('Select Double Happiness + 2 cards to give'); return; }
+        const dhCard = pickedHandCards[0];
+        const giveIds = pickedHandCards.slice(1).map(card => card.id);
+        if (!dhCard || !isPower(dhCard, 'double_happiness') || giveIds.length !== 2) { setError('Select Double Happiness + 2 cards to give'); return; }
         runMove(() => m.doubleHappinessGive(dhCard.id, targetPlayer, giveIds[0], giveIds[1]));
         break;
       }
       case 'tradePresent': {
-        const tradeCard = pickedHandCards.find(card => isPower(card, 'trade_present'));
-        const offeredCard = pickedHandCards.find(card => !isPower(card, 'trade_present'));
+        const tradeCard = selectedTradePresentCard;
+        const offeredCard = selectedTradePresentOfferCard;
         if (!tradeCard || !offeredCard) { setError('Select Trade Present + 1 card to offer'); return; }
         runMove(() => m.tradePresent(tradeCard.id, targetPlayer, offeredCard.id));
         break;
@@ -2159,6 +2591,30 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     };
   }
 
+  function renderColorPicker(prompt: string) {
+    return (
+      <div style={{ marginTop: 10 }}>
+        <p style={{ color: '#aaa', fontSize: 13, marginBottom: 6 }}>{prompt}</p>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {CHOOSABLE_FLOWER_COLORS.map(col => (
+            <button
+              key={col}
+              style={btn(chosenColor === col ? '#4ecca3' : '#333', chosenColor === col ? '#000' : '#fff')}
+              onClick={() => setChosenColor(col)}
+            >
+              <span className="inline-card-label">
+                {flowerArt(col)
+                  ? <img src={flowerArt(col)} alt={col} className="inline-flower-icon" />
+                  : <span aria-hidden="true">{FLOWER_EMOJI[col] ?? '🌺'}</span>}
+                <span>{col}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // ── Action panel ──────────────────────────────────────────────
 
   function ActionPanel() {
@@ -2172,7 +2628,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       if (pa.selectionKind) {
         const requiredCount = pa.selectionKind === 'trade_present' ? 1 : Math.min(2, me?.hand.length ?? 0);
         const helper = pa.selectionKind === 'trade_present'
-          ? 'Choose 1 card from your hand to exchange.'
+          ? 'Choose 1 card from your hand to exchange. The offered card stays hidden until the trade finishes.'
           : `Choose ${requiredCount} card(s) from your hand to give.`;
 
         return (
@@ -2209,7 +2665,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
               </p>
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', marginBottom: 12 }}>
-              {(me?.hand ?? []).map(card => (
+              {myHand.map(card => (
                 <CardChip
                   key={card.id}
                   card={card}
@@ -2471,7 +2927,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             {has('bug') && <button style={btn()} onClick={() => { setMoveType('playBug'); setStep('pick-card'); }}>🐛 Bug</button>}
             {has('bee') && <button style={btn()} onClick={() => { setMoveType('playBee'); setStep('pick-card'); }}>🐝 Bee</button>}
             {has('double_happiness') && <button style={btn()} onClick={() => { setMoveType('doubleHappiness'); setStep('pick-card'); }}>🎉 Double Happiness</button>}
-            {has('trade_present') && <button style={btn()} onClick={() => { setMoveType('tradePresent'); setStep('pick-card'); }}>🎁 Trade Present</button>}
+            {has('trade_present') && <button style={btn()} onClick={() => beginTradePresentFlow()}>🎁 Trade Present</button>}
             {has('trade_fate') && <button style={btn()} onClick={() => { setMoveType('tradeFate'); setStep('pick-card'); }}>🔀 Trade Fate</button>}
             {has('let_go') && <button style={btn()} onClick={() => { setMoveType('letGo'); setStep('pick-card'); }}>✋ Let Go</button>}
             {['spring','summer','autumn','winter'].some(s => has(s)) && (
@@ -2495,7 +2951,9 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       const helperText =
         moveType === 'doubleHappiness' ? 'Select the Double Happiness card:' :
         moveType === 'doubleHappinessGive' ? 'Select Double Happiness + 2 cards to give:' :
-        moveType === 'tradePresent' ? 'Select Trade Present + 1 card to offer:' :
+        moveType === 'tradePresent'
+          ? `Choose 1 card to offer${selectedTargetPlayer ? ` to ${nameOf(selectedTargetPlayer)}` : ''}:`
+          : 
         maxCards > 1 ? `Select up to ${maxCards} cards:` : 'Select a card to play:';
 
       return (
@@ -2512,6 +2970,27 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
               {moveInfo.steps.map((item, index) => <li key={index}>{item}</li>)}
             </ul>
           </div>
+          {moveType === 'tradePresent' && selectedTradePresentCard && (
+            <div style={{ background: '#1a1a2e', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+              <div style={{ color: '#fff', fontWeight: 700, marginBottom: 8 }}>Trade setup</div>
+              <div style={{ color: '#9fb0ff', fontSize: 12, lineHeight: 1.6 }}>
+                Target:{' '}
+                <b style={{ color: '#fff' }}>
+                  {selectedTargetPlayer ? nameOf(selectedTargetPlayer) : 'not chosen yet'}
+                </b>
+              </div>
+              <div style={{ color: '#9fb0ff', fontSize: 12, lineHeight: 1.6 }}>
+                Exchange card:{' '}
+                <b style={{ color: '#fff' }}><InlineCardLabel card={selectedTradePresentCard} /></b>
+              </div>
+              <div style={{ color: '#9fb0ff', fontSize: 12, lineHeight: 1.6 }}>
+                Your offer:{' '}
+                <b style={{ color: '#fff' }}>
+                  {selectedTradePresentOfferCard ? <InlineCardLabel card={selectedTradePresentOfferCard} /> : 'pick 1 card below'}
+                </b>
+              </div>
+            </div>
+          )}
           <p style={{ color: '#aaa', fontSize: 13, marginBottom: 10 }}>{helperText}</p>
           {(moveType === 'doubleHappiness' || moveType === 'doubleHappinessTake' || moveType === 'tradePresent') && (
             <p style={{ color: '#888', fontSize: 12, marginTop: -4, marginBottom: 10 }}>
@@ -2520,7 +2999,53 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                 : 'If you use Take 2, the target player will choose which card(s) they give you after you confirm.'}
             </p>
           )}
-          {cards.length === 0 ? (
+          {moveType === 'tradePresent' ? (
+            <>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ color: '#f4f1ff', fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+                  Choose which Trade Present card to cast
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                  {myHand.filter(card => isPower(card, 'trade_present')).map(card => (
+                    <CardChip
+                      key={card.id}
+                      card={card}
+                      selected={selectedTradePresentCard?.id === card.id}
+                      onClick={() => {
+                        const preservedOfferId = selectedTradePresentOfferCard?.id;
+                        setPickedCards(preservedOfferId && preservedOfferId !== card.id
+                          ? [card.id, preservedOfferId]
+                          : [card.id]);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ color: '#f4f1ff', fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+                  {helperText}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+                  {myHand.filter(card => card.id !== selectedTradePresentCard?.id).map(card => (
+                    <CardChip
+                      key={card.id}
+                      card={card}
+                      selected={selectedTradePresentOfferCard?.id === card.id}
+                      onClick={() => {
+                        if (!selectedTradePresentCard) return;
+                        setPickedCards(prev => {
+                          const tradeCardId = selectedTradePresentCard.id;
+                          return prev.includes(card.id)
+                            ? [tradeCardId]
+                            : [tradeCardId, card.id];
+                        });
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : cards.length === 0 ? (
             <p style={{ color: '#e94560', fontSize: 13 }}>No matching cards in hand.</p>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap' }}>
@@ -2571,31 +3096,24 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             </div>
           )}
 
-          {needsColor(moveType) && (
-            <div style={{ marginTop: 10 }}>
-              <p style={{ color: '#aaa', fontSize: 13, marginBottom: 6 }}>
-                {moveType === 'playBee' ? 'Choose a color (used when Bee starts a new set):' : 'Choose a color:'}
-              </p>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {['blue','purple','red','orange','yellow','green','black'].map(col => (
-                  <button key={col} style={btn(chosenColor === col ? '#4ecca3' : '#333', chosenColor === col ? '#000' : '#fff')}
-                    onClick={() => setChosenColor(col)}>
-                    <span className="inline-card-label">
-                      {flowerArt(col as FlowerColor)
-                        ? <img src={flowerArt(col as FlowerColor)} alt={col} className="inline-flower-icon" />
-                        : <span aria-hidden="true">{FLOWER_EMOJI[col] ?? '🌺'}</span>}
-                      <span>{col}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
+          {needsColor(moveType) && renderColorPicker(
+            moveType === 'playBee'
+              ? 'Choose a color now if Bee might need to start a new set:'
+              : 'Choose a color now if this rainbow might need to start a new set:'
           )}
 
-          {pickedCards.length > 0 && (moveType !== 'playBee' || !!discardChoice) && (
+          {((moveType === 'tradePresent' && !!selectedTradePresentOfferCard)
+            || (pickedCards.length > 0 && moveType !== 'tradePresent'))
+            && (moveType !== 'playBee' || !!discardChoice) && (
             <button style={{ ...btn('#4ecca3', '#1a1a2e'), marginTop: 14 }}
-              onClick={() => needsTargetPlayer ? setStep('pick-target') : setStep('confirm')}>
-              Next →
+              onClick={() => {
+                if (moveType === 'tradePresent') {
+                  setStep('confirm');
+                  return;
+                }
+                needsTargetPlayer ? setStep('pick-target') : setStep('confirm');
+              }}>
+              {moveType === 'tradePresent' ? 'Review trade →' : 'Next →'}
             </button>
           )}
           {error && <p style={{ color: '#e94560', fontSize: 13, marginTop: 8 }}>{error}</p>}
@@ -2616,10 +3134,13 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         && remainingDoubleWindFlowers > 0
         && remainingFollowUpChoices.length > 0;
       const selectedDhCard = moveType === 'doubleHappiness'
-        ? selectedCards.find(card => isPower(card, 'double_happiness')) ?? null
+        ? myHand.find(card => card.id === pickedCards[0] && isPower(card, 'double_happiness')) ?? null
         : null;
       const doubleHappinessGiveCards = moveType === 'doubleHappiness'
-        ? selectedCards.filter(card => !isPower(card, 'double_happiness'))
+        ? pickedCards
+          .slice(1)
+          .map(id => myHand.find(card => card.id === id))
+          .filter((card): card is Card => !!card)
         : [];
       const canAdvanceFromTarget = !!targetPlayer
         && (!requiresTargetSet || !!targetSet)
@@ -2632,7 +3153,12 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         <div style={{ background: '#16213e', borderRadius: 12, padding: 16, marginTop: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
             <span style={{ color: '#4ecca3', fontWeight: 700 }}>Select Target</span>
-            <button style={btn('#333')} onClick={() => setStep('pick-card')}>← Back</button>
+            <button
+              style={btn('#333')}
+              onClick={() => moveType === 'tradePresent' ? resetAll() : setStep('pick-card')}
+            >
+              ← Back
+            </button>
             <button style={btn('#333')} onClick={resetAll}>✕ Cancel</button>
           </div>
           {effectiveMoveType === 'playWindDouble' && (
@@ -2752,6 +3278,8 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             <div style={{ color: '#9fb0ff', fontSize: 12, lineHeight: 1.5, marginTop: 4 }}>
               {moveType === 'playBee'
                 ? 'Next: choose whose garden Bee will plant into, then choose a set or start a new one.'
+                : moveType === 'tradePresent'
+                  ? 'Next: choose who you want to trade with. Then you will pick the single card you want to offer them.'
                 : effectiveMoveType === 'playWindDouble'
                   ? 'Next: choose a player below. Double Wind will immediately open a focused set picker so you can choose all target sets in one place.'
                   : 'Next: choose a player, then finish any required target-set selection.'}
@@ -2854,7 +3382,11 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           {!showDoubleWindPrompt && (
             <>
               <p style={{ color: '#aaa', fontSize: 13, marginBottom: 10 }}>
-                {moveType === 'playBee' ? 'Choose whose garden Bee will plant into:' : 'Who do you want to target?'}
+                {moveType === 'playBee'
+                  ? 'Choose whose garden Bee will plant into:'
+                  : moveType === 'tradePresent'
+                    ? 'Who do you want to trade with?'
+                    : 'Who do you want to target?'}
               </p>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
                 {targetablePlayers.map(p => (
@@ -2951,9 +3483,14 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             </div>
           )}
 
+          {moveType === 'playBee' && !!targetPlayer && !targetSet && renderColorPicker('Bee is starting a new set here, so choose the color for that new set:')}
+
           {canAdvanceFromTarget && effectiveMoveType !== 'playWindDouble' && (
-            <button style={btn('#4ecca3', '#1a1a2e')} onClick={() => setStep('confirm')}>
-              Next →
+            <button
+              style={btn('#4ecca3', '#1a1a2e')}
+              onClick={() => setStep(moveType === 'tradePresent' ? 'pick-card' : 'confirm')}
+            >
+              {moveType === 'tradePresent' ? 'Choose offer →' : 'Next →'}
             </button>
           )}
           {error && <p style={{ color: '#e94560', fontSize: 13, marginTop: 8 }}>{error}</p>}
@@ -2969,7 +3506,13 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         ? [...pickedCardObjects, autoDoubleWindCard]
         : pickedCardObjects;
       const tname = nameOf(G.players.find(p => p.id === targetPlayer));
-      const beeDiscardCard = beeDiscardFlowers.find(c => c.id === discardChoice);
+      const beeDiscardCard = selectedBeeDiscardFlower;
+      const confirmTargetSets = moveType === 'plantOwn' || moveType === 'plantOpponent'
+        ? plantEditableSets
+        : (selectedTargetPlayer?.garden.sets.filter(set => isValidTargetSetForMove(effectiveMoveType, set)) ?? []);
+      const confirmDoubleWindFollowUps = effectiveMoveType === 'playWindDouble'
+        ? confirmTargetSets.filter(set => set.id !== targetSet)
+        : [];
       return (
         <div style={{ background: '#16213e', borderRadius: 12, padding: 16, marginTop: 12 }}>
           <h4 style={{ color: '#4ecca3', marginBottom: 10 }}>Confirm Move</h4>
@@ -3017,39 +3560,182 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             </div>
           )}
           {tname && <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>Target: <b>{tname}</b></p>}
-          {effectiveMoveType === 'playWindDouble' && selectedWindTargetSets.length > 0 && (
-            <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>
-              Wind target sets: <b>{selectedWindTargetSets.map(set => describeGardenSet(set)).join(' + ')}</b>
-            </p>
+          {moveType === 'tradePresent' && selectedTradePresentOfferCard && (
+            <div style={{ background: '#1a1a2e', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <p style={{ fontSize: 13, color: '#ccc', margin: '0 0 6px 0' }}>
+                You are offering: <b><InlineCardLabel card={selectedTradePresentOfferCard} /></b>
+              </p>
+              <p style={{ fontSize: 12, color: '#9fb0ff', margin: 0 }}>
+                {tname || 'The target player'} will see this card, then choose 1 card from their own hand to trade back.
+              </p>
+            </div>
           )}
           {moveType === 'playBee' && beeDiscardCard && (
             <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>Discard flower: <b><InlineCardLabel card={beeDiscardCard} /></b></p>
           )}
-          {(moveType === 'plantOwn' || moveType === 'plantOpponent') && (() => {
-            const tgtPlayer = moveType === 'plantOwn' ? me : G.players.find(p => p.id === targetPlayer);
-            const sets = tgtPlayer?.garden.sets ?? [];
-            if (sets.length === 0) return <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>Set: <b>new set</b></p>;
-            return (
-              <div style={{ marginBottom: 8 }}>
-                <p style={{ fontSize: 13, color: '#aaa', marginBottom: 6 }}>Plant into which set?</p>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {sets.map(s => (
-                    <SetChip key={s.id} set={s} highlight={effectiveTargetSetId === s.id}
-                      onClick={() => setTargetSet(s.id)} />
-                  ))}
-                  <button style={{ ...btn(effectiveTargetSetId === '' ? '#4ecca3' : '#555', effectiveTargetSetId === '' ? '#1a1a2e' : '#fff'), fontSize: 11, padding: '3px 8px' }}
-                    onClick={() => setTargetSet('')}>＋ New set</button>
+          {(moveType === 'plantOwn' || moveType === 'plantOpponent') && selectedPrimaryFlower && (
+            wildcardNeedsChosenColor(selectedPrimaryFlower) || selectedPrimaryFlower.color === 'triple_rainbow' ? (
+              <div style={{ background: '#1a1a2e', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                <div style={{ color: '#fff', fontWeight: 700, marginBottom: 8 }}>Plant destination</div>
+                <div style={{ color: '#9fb0ff', fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>
+                  Choose an existing set, or leave this as a new set. Wildcard flowers can be retargeted here without backing out.
                 </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {confirmTargetSets.map(set => (
+                    <SetChip
+                      key={set.id}
+                      set={set}
+                      highlight={effectiveTargetSetId === set.id}
+                      onClick={() => setTargetSet(set.id)}
+                    />
+                  ))}
+                  <button
+                    style={{ ...btn(effectiveTargetSetId === '' ? '#4ecca3' : '#555', effectiveTargetSetId === '' ? '#1a1a2e' : '#fff'), fontSize: 11, padding: '3px 8px' }}
+                    onClick={() => setTargetSet('')}
+                  >
+                    + New set
+                  </button>
+                </div>
+                {plantNeedsColorForNewSet && renderColorPicker(
+                  selectedPrimaryFlower.color === 'triple_rainbow'
+                    ? 'Choose a color to use Triple Rainbow like a rainbow flower, or leave it blank to keep it standalone:'
+                    : 'Choose the color for the new rainbow set:'
+                )}
+                {!plantNeedsColorForNewSet && effectiveTargetSetId === '' && selectedPrimaryFlower.color === 'triple_rainbow' && (
+                  <p style={{ fontSize: 12, color: '#9fb0ff', margin: '8px 0 0 0' }}>
+                    Triple Rainbow can stand alone as a new set, or you can give it a color so it works like a rainbow flower.
+                  </p>
+                )}
               </div>
-            );
-          })()}
-          {moveType !== 'plantOwn' && moveType !== 'plantOpponent' && effectiveTargetSetId && <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>Set: <b>{selectedTargetSet ? `${selectedTargetSet.flowers.length} flower(s)` : 'selected ✓'}</b></p>}
+            ) : (
+              <div style={{ background: '#1a1a2e', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                <div style={{ color: '#fff', fontWeight: 700, marginBottom: 8 }}>Plant destination</div>
+                <p style={{ fontSize: 12, color: '#9fb0ff', margin: '0 0 6px 0' }}>
+                  Regular flowers auto-match by color, so there is no manual set choice for this play.
+                </p>
+                <p style={{ fontSize: 13, color: '#ccc', margin: 0 }}>
+                  Destination:{' '}
+                  <b>
+                    {regularPlantAutoTargetSet
+                      ? describeGardenSet(regularPlantAutoTargetSet)
+                      : `a new ${selectedPrimaryFlower.color} set`}
+                  </b>
+                </p>
+              </div>
+            )
+          )}
+          {moveType === 'playBee' && (
+            <div style={{ background: '#1a1a2e', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <div style={{ color: '#fff', fontWeight: 700, marginBottom: 8 }}>Bee destination</div>
+              <div style={{ color: '#9fb0ff', fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>
+                Choose which set Bee should add to, or start a new one from here.
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                {confirmTargetSets.map(set => (
+                  <SetChip
+                    key={set.id}
+                    set={set}
+                    highlight={effectiveTargetSetId === set.id}
+                    onClick={() => setTargetSet(set.id)}
+                  />
+                ))}
+                <button
+                  style={{ ...btn(effectiveTargetSetId === '' ? '#4ecca3' : '#555', effectiveTargetSetId === '' ? '#1a1a2e' : '#fff'), fontSize: 11, padding: '3px 8px' }}
+                  onClick={() => setTargetSet('')}
+                >
+                  + New set
+                </button>
+              </div>
+              {beeNeedsColorForNewSet && renderColorPicker("Choose the color for Bee's new set:")}
+            </div>
+          )}
+          {moveUsesEditableSetTarget(effectiveMoveType) && moveType !== 'playBee' && moveType !== 'plantOwn' && moveType !== 'plantOpponent' && (
+            <div style={{ background: '#1a1a2e', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <div style={{ color: '#fff', fontWeight: 700, marginBottom: 8 }}>
+                {effectiveMoveType === 'playWindDouble' ? 'Double Wind targets' : 'Target set'}
+              </div>
+              {confirmTargetSets.length === 0 ? (
+                <p style={{ fontSize: 13, color: '#e94560', margin: 0 }}>No valid sets are available right now.</p>
+              ) : effectiveMoveType === 'playWindDouble' ? (
+                <>
+                  <div style={{ color: '#9fb0ff', fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>
+                    Double Wind currently covers <b style={{ color: '#fff' }}>{selectedWindStealCount}</b> / 4 flower(s).
+                    {remainingDoubleWindFlowers > 0
+                      ? ` Choose ${remainingDoubleWindFlowers} more flower${remainingDoubleWindFlowers === 1 ? '' : 's'} worth of targets if another vulnerable set exists.`
+                      : ' You have enough flowers selected.'}
+                  </div>
+                  <div style={{ color: '#f4f1ff', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Primary target set</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', marginBottom: targetSet ? 10 : 0 }}>
+                    {confirmTargetSets.map(set => (
+                      <SetChip
+                        key={set.id}
+                        set={set}
+                        highlight={targetSet === set.id}
+                        onClick={() => {
+                          setTargetSet(set.id);
+                          setWindExtraTargetSets(prev => prev.filter(id => id !== set.id));
+                        }}
+                      />
+                    ))}
+                  </div>
+                  {targetSet && confirmDoubleWindFollowUps.length > 0 && (
+                    <>
+                      <div style={{ color: '#f4f1ff', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Follow-up target sets</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', marginBottom: 8 }}>
+                        {confirmDoubleWindFollowUps.map(set => (
+                          <SetChip
+                            key={set.id}
+                            set={set}
+                            highlight={windExtraTargetSets.includes(set.id)}
+                            onClick={() => toggleDoubleWindTargetSet(set.id)}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {selectedWindTargetSets.length > 0 && (
+                    <p style={{ fontSize: 13, color: '#ccc', margin: '4px 0 0 0' }}>
+                      Selected sets: <b>{selectedWindTargetSets.map(set => describeGardenSet(set)).join(' + ')}</b>
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', marginBottom: 8 }}>
+                    {confirmTargetSets.map(set => (
+                      <SetChip
+                        key={set.id}
+                        set={set}
+                        highlight={targetSet === set.id}
+                        onClick={() => setTargetSet(set.id)}
+                      />
+                    ))}
+                  </div>
+                  {targetSet && (
+                    <p style={{ fontSize: 13, color: '#ccc', margin: '4px 0 0 0' }}>
+                      Selected set: <b>{selectedTargetSet ? describeGardenSet(selectedTargetSet) : 'selected ✓'}</b>
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {moveType !== 'plantOwn' && moveType !== 'plantOpponent' && moveType !== 'playBee' && effectiveTargetSetId && effectiveMoveType !== 'playWindDouble' && (
+            <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>
+              Set: <b>{selectedTargetSet ? describeGardenSet(selectedTargetSet) : 'selected ✓'}</b>
+            </p>
+          )}
           {moveType === 'playBee' && !effectiveTargetSetId && <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>Set: <b>start new set</b></p>}
           {chosenColor && <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>Color: <b>{chosenColor}</b></p>}
           {error && <p style={{ color: '#e94560', fontSize: 13, marginBottom: 8 }}>⚠️ {error}</p>}
           <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
             <button style={btn('#4ecca3', '#1a1a2e')} onClick={dispatch} disabled={isSubmitting}>✔ Confirm</button>
-            <button style={btn('#555')} onClick={() => setStep(needsTargetPlayer ? 'pick-target' : 'pick-card')}>← Back</button>
+            <button
+              style={btn('#555')}
+              onClick={() => setStep(moveType === 'tradePresent' ? 'pick-card' : (needsTargetPlayer ? 'pick-target' : 'pick-card'))}
+            >
+              ← Back
+            </button>
             <button style={btn('#333')} onClick={resetAll}>✕ Cancel</button>
           </div>
         </div>
@@ -3065,6 +3751,11 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const hand = me?.hand ?? [];
   const has = (name: string) => hand.some(c => isPower(c, name));
   const hasFlower = hand.some(isFlower);
+  const joinedRoomCount = G.players.filter(player => player.name.trim()).length;
+  const roomReadyEnabled = joinedRoomCount >= G.minPlayers;
+  const myReady = !!playerID && G.readyPlayerIds.includes(playerID);
+  const iAmRoomOwner = !!playerID && G.ownerPlayerId === playerID;
+  const roomOwnerName = nameOf(G.players.find(player => player.id === G.ownerPlayerId) ?? null) || 'Room owner';
   const showActionOverlay =
     (myTurn && step !== 'menu' && G.phase === 'action') ||
     (myTurn && G.phase === 'blessing') ||
@@ -3084,6 +3775,160 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     : cardPlayFx === 'wind-blow'
       ? windBlowGif
       : null;
+
+  if (G.phase === 'waiting') {
+    return (
+      <div className={shellClass} style={theme.pageStyle}>
+        <div className="waiting-room-shell">
+          <div
+            className="waiting-room-panel"
+            style={{
+              background: theme.panel,
+              border: `1px solid ${theme.border}`,
+              boxShadow: `0 24px 60px ${theme.glow}`,
+            }}
+          >
+            <div className="waiting-room-header">
+              <div className="waiting-room-heading">
+                <div className="waiting-room-kicker" style={{ color: theme.muted }}>
+                  Waiting Room
+                </div>
+                <h1 className="waiting-room-title" style={{ color: theme.text }}>{G.roomName || 'Flower Room'}</h1>
+                <div className="waiting-room-subtitle" style={{ color: theme.muted }}>
+                  Hosted by <b style={{ color: theme.text }}>{roomOwnerName}</b> · room ID <span style={{ fontFamily: 'monospace', color: theme.text }}>{matchCtx?.matchID}</span>
+                </div>
+              </div>
+              <div
+                className="waiting-room-rules"
+                style={{
+                  background: theme.panelSoft,
+                  border: `1px solid ${theme.border}`,
+                  color: theme.text,
+                }}
+              >
+                <div className="waiting-room-card-label">Room rules</div>
+                <div className="waiting-room-card-copy" style={{ color: theme.muted }}>
+                  {G.minPlayers}-{G.maxPlayers} players. Seats shuffle when the owner starts the game, and the opening player is chosen from that shuffled order.
+                </div>
+              </div>
+            </div>
+
+            <div className="waiting-room-seat-grid">
+              {G.players.map((player, index) => {
+                const occupied = !!player.name.trim();
+                const isMine = player.id === playerID;
+                const isOwnerSeat = player.id === G.ownerPlayerId;
+                const isReady = G.readyPlayerIds.includes(player.id);
+                return (
+                  <div
+                    key={player.id}
+                    className="waiting-room-seat-card"
+                    style={{
+                      border: `1px solid ${occupied ? theme.accent : theme.border}`,
+                      background: occupied ? theme.panelSoft : theme.panelAlt,
+                      opacity: occupied ? 1 : 0.82,
+                    }}
+                  >
+                    <div className="waiting-room-seat-top">
+                      <div className="waiting-room-seat-index" style={{ color: theme.muted }}>Seat {index + 1}</div>
+                      <div className="waiting-room-seat-badges">
+                        {isOwnerSeat && (
+                          <span className="waiting-room-badge" style={{ color: theme.text, background: theme.panel }}>
+                            Owner
+                          </span>
+                        )}
+                        {occupied && isReady && (
+                          <span className="waiting-room-badge" style={{ color: '#1a1a2e', background: '#4ecca3' }}>
+                            Ready
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="waiting-room-seat-name" style={{ color: occupied ? theme.text : theme.muted }}>
+                      {occupied ? player.name : 'Open seat'}
+                    </div>
+                    <div className="waiting-room-seat-copy" style={{ color: theme.muted }}>
+                      {occupied
+                        ? isMine
+                          ? 'This is your seat.'
+                          : 'Joined and waiting.'
+                        : 'Another player can join here.'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="waiting-room-footer-grid">
+              <div
+                className="waiting-room-info-card"
+                style={{
+                  background: theme.panelSoft,
+                  border: `1px solid ${theme.border}`,
+                }}
+              >
+                <div className="waiting-room-card-label" style={{ color: theme.muted }}>Status</div>
+                <div className="waiting-room-status-value" style={{ color: theme.text }}>
+                  {joinedRoomCount}/{G.maxPlayers} joined
+                </div>
+                <div className="waiting-room-card-copy" style={{ color: theme.muted }}>
+                  {roomReadyEnabled
+                    ? 'Minimum players reached. Everyone can ready up, and the owner can start whenever the room is set.'
+                    : `Need ${G.minPlayers - joinedRoomCount} more player${G.minPlayers - joinedRoomCount === 1 ? '' : 's'} before ready becomes available.`}
+                </div>
+              </div>
+
+              <div
+                className="waiting-room-actions-card"
+                style={{
+                  background: theme.panelSoft,
+                  border: `1px solid ${theme.border}`,
+                }}
+              >
+                <div className="waiting-room-card-label" style={{ color: theme.muted }}>Actions</div>
+                <button
+                  type="button"
+                  className="waiting-room-action-button"
+                  disabled={!playerID || !me?.name.trim() || !roomReadyEnabled || isSubmitting}
+                  onClick={() => runMove(() => m.toggleReady())}
+                  style={btn(myReady ? '#d8dde4' : '#4ecca3', myReady ? '#1a1a2e' : '#1a1a2e')}
+                >
+                  {myReady ? 'Unready' : 'Ready'}
+                </button>
+                {iAmRoomOwner && (
+                  <button
+                    type="button"
+                    className="waiting-room-action-button"
+                    disabled={!roomReadyEnabled || isSubmitting}
+                    onClick={() => runMove(() => m.startGame())}
+                    style={btn('#e94560', '#fff')}
+                  >
+                    {isSubmitting ? 'Starting...' : 'Start Game'}
+                  </button>
+                )}
+                {!iAmRoomOwner && (
+                  <div className="waiting-room-card-copy" style={{ color: theme.muted }}>
+                    The room owner starts the match once the table is ready.
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="waiting-room-action-button"
+                  onClick={() => matchCtx?.onLeave()}
+                  style={btn('#555')}
+                >
+                  Leave Room
+                </button>
+                {error && (
+                  <div style={{ color: '#e94560', fontSize: 13 }}>⚠️ {error}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={shellClass} style={theme.pageStyle}>
@@ -3187,8 +4032,10 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           )}
         </div>
         <div className="v2-header-right">
-          <span style={{ color: theme.muted, fontSize: 11 }} title="Cards in draw pile">🂠 {G.drawPile.length}</span>
-          <span style={{ color: theme.muted, fontSize: 11 }} title="Cards in discard pile">🗑 {G.discardPile.length}</span>
+          <div className="v2-deck-cluster" style={{ color: theme.muted }} aria-label="Deck and discard counts">
+            <span className="v2-deck-pill" title="Cards in draw pile">🂠 {G.drawPile.length}</span>
+            <span className="v2-deck-pill v2-discard-pill" title="Cards in discard pile">🗑 {G.discardPile.length}</span>
+          </div>
           <span style={{ color: theme.muted, fontSize: 11 }} title="Total game time">⌛ {totalTimerLabel}</span>
           <span style={{ color: turnRemainingSec > 0 && turnRemainingSec <= 10 ? '#e94560' : theme.muted, fontSize: 11 }}>⏱ {turnTimerLabel}</span>
         </div>
@@ -3325,7 +4172,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             color: theme.text, borderRadius: 12, padding: '10px 20px',
             fontSize: 18, fontWeight: 700, whiteSpace: 'nowrap',
           }}>
-            🎉 {nameOf(G.players.find(p => p.id === G.winner)) || G.winner} wins!
+            {resultWinnerLabel} wins!
           </div>
         )}
 
@@ -3340,17 +4187,27 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           ref={arenaRef}
           className="board-arena board-arena-radial"
           onWheel={event => {
-            if (!event.ctrlKey && !event.metaKey) return;
             event.preventDefault();
-            adjustArenaZoom(event.deltaY < 0 ? 0.08 : -0.08);
+            if (event.ctrlKey || event.metaKey) {
+              adjustArenaZoom(event.deltaY < 0 ? 0.08 : -0.08, { clientX: event.clientX, clientY: event.clientY });
+              return;
+            }
+            setArenaPan(current => ({
+              x: current.x - event.deltaX,
+              y: current.y - event.deltaY,
+            }));
           }}
         >
-          <div className="arena-zoom-stage" style={{ ['--arena-zoom' as string]: String(arenaZoom) } as React.CSSProperties}>
-            <div className={`arena-core ${turnRemainingSec > 0 && turnRemainingSec <= 10 ? 'is-urgent' : ''}`} aria-hidden="true">
-              <img className="arena-core-ui" src={centerUiGif} alt="" />
-            </div>
+          <div
+            className="arena-pan-stage"
+            style={{ ['--arena-pan-x' as string]: `${arenaPan.x}px`, ['--arena-pan-y' as string]: `${arenaPan.y}px` } as React.CSSProperties}
+          >
+            <div className="arena-zoom-stage" style={{ ['--arena-zoom' as string]: String(arenaZoom) } as React.CSSProperties}>
+              <div className={`arena-core ${turnRemainingSec > 0 && turnRemainingSec <= 10 ? 'is-urgent' : ''}`} aria-hidden="true">
+                <img className="arena-core-ui" src={centerUiGif} alt="" />
+              </div>
 
-            {arenaLayout.map(layout => {
+              {arenaLayout.map(layout => {
             const player = layout.player;
             const isActive = G.turnOrder[G.currentPlayerIndex] === player.id;
             const isMe = player.id === playerID;
@@ -3485,6 +4342,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
               </div>
             );
             })}
+            </div>
           </div>
         </div>
 
@@ -3505,6 +4363,9 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           </span>
           <span className="v2-timer-pill-clock" style={{ color: turnRemainingSec > 0 && turnRemainingSec <= 10 ? '#e94560' : theme.text }}>
             {turnTimerLabel}
+          </span>
+          <span className="v2-timer-pill-total" style={{ color: theme.muted }}>
+            {totalTimerLabel}
           </span>
           {myTurn && G.phase === 'action' && (
             <span className="v2-timer-pill-moves" style={{ color: theme.muted }}>
@@ -3530,7 +4391,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                 {has('bug') && <button className="v2-move-btn" title="Bug" onClick={() => { setMoveType('playBug'); setStep('pick-card'); }}>🐛</button>}
                 {has('bee') && <button className="v2-move-btn" title="Bee" onClick={() => { setMoveType('playBee'); setStep('pick-card'); }}>🐝</button>}
                 {has('double_happiness') && <button className="v2-move-btn" title="Double Happiness" onClick={() => { setMoveType('doubleHappiness'); setStep('pick-card'); }}>🎉</button>}
-                {has('trade_present') && <button className="v2-move-btn" title="Trade Present" onClick={() => { setMoveType('tradePresent'); setStep('pick-card'); }}>🎁</button>}
+                {has('trade_present') && <button className="v2-move-btn" title="Trade Present" onClick={() => beginTradePresentFlow()}>🎁</button>}
                 {has('trade_fate') && <button className="v2-move-btn" title="Trade Fate" onClick={() => { setMoveType('tradeFate'); setStep('pick-card'); }}>🔀</button>}
                 {has('let_go') && <button className="v2-move-btn" title="Let Go" onClick={() => { setMoveType('letGo'); setStep('pick-card'); }}>✋</button>}
                 {['spring','summer','autumn','winter'].some(s => has(s)) && <button className="v2-move-btn" title="Season" onClick={() => { setMoveType('playSeason'); setStep('pick-card'); }}>🌸</button>}
@@ -3560,15 +4421,23 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         </div>
 
         {/* Center: Hand */}
-        <div className="v2-hand-dock">
-          <div style={{ fontSize: 10, color: theme.muted, marginBottom: 4, textAlign: 'center' }}>
-            Hand · {myHand.length}
-          </div>
-          <div className="hand-dock player-hand-row">
+        <div
+          ref={handDockRef}
+          className={`v2-hand-dock ${myTurn && G.phase === 'action' ? 'is-play-turn' : 'is-reorder-turn'}`}
+        >
+          {showHandInfoCard && (
+            <div
+              className="hand-card-info-pop"
+              style={{ ['--hand-info-anchor' as string]: `${handInfoAnchor * 100}%` } as React.CSSProperties}
+            >
+              <div className="hand-card-info-pop__title">{cardName(showHandInfoCard)}</div>
+              <div className="hand-card-info-pop__body">{cardDetail(showHandInfoCard)}</div>
+            </div>
+          )}
+          <div ref={handRowRef} className="hand-dock player-hand-row v2-hand-row">
             {myHand.length === 0 ? (
               <span style={{ color: theme.muted, fontSize: 12 }}>Empty</span>
             ) : myHand.map((c, i) => {
-              const canDrag = myTurn && G.phase === 'action';
               const mid = (myHand.length - 1) / 2;
               return (
                 <div
@@ -3580,12 +4449,10 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                   <CardChip
                     card={c}
                     selected={armedCardId === c.id || pickedCards.includes(c.id) || counterPickedCards.includes(c.id)}
-                    draggable={canDrag}
+                    draggable
                     dragging={draggingCardId === c.id}
-                    onClick={(myTurn && G.phase === 'action') || (isCounter && amTarget && inStage && !!G.pendingAction?.selectionKind)
-                      ? () => handleHandCardClick(c.id)
-                      : undefined}
-                    onPointerDown={canDrag ? (event) => startCardPointerSession(c.id, event) : undefined}
+                    onClick={() => handleHandCardClick(c.id)}
+                    onPointerDown={(event) => startCardPointerSession(c.id, event)}
                   />
                 </div>
               );
@@ -3603,6 +4470,11 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         <button className="v2-footer-btn" style={{ color: theme.muted }} onClick={() => setModalOpen('rules')}>
           <span>📖</span><span className="v2-footer-label">Rules</span>
         </button>
+        {matchResult && (
+          <button className="v2-footer-btn" style={{ color: theme.muted }} onClick={() => setModalOpen('results')}>
+            <span>🏁</span><span className="v2-footer-label">Results</span>
+          </button>
+        )}
         <a href="https://flowerbug.a133.mov" target="_blank" rel="noreferrer" className="v2-footer-btn" style={{ color: theme.muted }}>
           <span>🐛</span><span className="v2-footer-label">Report Bug</span>
         </a>
@@ -3614,26 +4486,109 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       {/* ── MODALS ── */}
       {modalOpen && (
         <div className="v2-modal-backdrop" onClick={() => setModalOpen(null)}>
-          <div className="v2-modal" style={{ background: theme.panel, border: `1px solid ${theme.border}` }}
+          <div className={`v2-modal${modalOpen === 'results' ? ' v2-modal--results' : ''}`} style={{ background: theme.panel, border: `1px solid ${theme.border}` }}
             onClick={e => e.stopPropagation()}>
             <div className="v2-modal-header" style={{ borderBottom: `1px solid ${theme.border}` }}>
               <span style={{ fontWeight: 700, color: theme.text }}>
-                {modalOpen === 'menu' ? '☰ Match Info' : '📖 Rules'}
+                {modalOpen === 'menu'
+                  ? 'Match Info'
+                  : modalOpen === 'results'
+                    ? 'Match Results'
+                  : 'Rules'}
               </span>
               <button className="icon-btn" onClick={() => setModalOpen(null)}>✕</button>
             </div>
-            <div className="v2-modal-body" style={{ color: theme.text }}>
+            <div className={`v2-modal-body${modalOpen === 'results' ? ' v2-modal-body--results' : ''}`} style={{ color: theme.text }}>
               {modalOpen === 'menu' && (
                 <>
                   <div style={{ marginBottom: 10, fontSize: 13 }}>Match: <b>{matchCtx?.matchID ?? '—'}</b></div>
                   <div style={{ marginBottom: 10, fontSize: 13 }}>You: <b>{matchCtx?.playerName ?? playerID}</b></div>
                   <div style={{ marginBottom: 10, fontSize: 13 }}>Phase: <b>{G.phase}</b></div>
-                  <div style={{ marginBottom: 10, fontSize: 13 }}>Season: <b>{G.season ?? 'none'}</b></div>
+                  <div style={{ marginBottom: 10, fontSize: 13 }}>Season: <b>{formatSeasonLabel(G.season)}</b></div>
                   <div style={{ marginBottom: 16, fontSize: 13 }}>Total time: <b>{totalTimerLabel}</b></div>
+                  {matchResult && (
+                    <button style={{ ...btn(theme.accent, '#1a1a2e'), fontSize: 12, marginBottom: 10 }}
+                      onClick={() => setModalOpen('results')}>
+                      View Results
+                    </button>
+                  )}
                   <button style={{ ...btn('#555'), fontSize: 12 }}
                     onClick={() => { void navigator.clipboard.writeText(matchCtx?.matchID ?? ''); }}>
                     📋 Copy Match ID
                   </button>
+                </>
+              )}
+              {modalOpen === 'results' && matchResult && (
+                <>
+                  <div className="v2-results-summary-grid">
+                    <div className="v2-results-summary-card" style={{ background: theme.panelSoft, border: `1px solid ${theme.border}` }}>
+                      <div className="v2-results-summary-label" style={{ color: theme.muted }}>Winner</div>
+                      <div className="v2-results-summary-value">{matchResult.winnerName ?? 'Unknown'}</div>
+                    </div>
+                    <div className="v2-results-summary-card" style={{ background: theme.panelSoft, border: `1px solid ${theme.border}` }}>
+                      <div className="v2-results-summary-label" style={{ color: theme.muted }}>Final Time</div>
+                      <div className="v2-results-summary-value">{formatElapsedClock(matchResult.durationSec)}</div>
+                    </div>
+                    <div className="v2-results-summary-card" style={{ background: theme.panelSoft, border: `1px solid ${theme.border}` }}>
+                      <div className="v2-results-summary-label" style={{ color: theme.muted }}>Season</div>
+                      <div className="v2-results-summary-value">{formatSeasonLabel(matchResult.seasonAtFinish)}</div>
+                    </div>
+                    <div className="v2-results-summary-card" style={{ background: theme.panelSoft, border: `1px solid ${theme.border}` }}>
+                      <div className="v2-results-summary-label" style={{ color: theme.muted }}>Cards Left</div>
+                      <div className="v2-results-summary-value">{matchResult.drawPileCount} draw / {matchResult.discardPileCount} discard</div>
+                    </div>
+                  </div>
+                  <div className="v2-results-section-label" style={{ color: theme.muted }}>Player state at finish</div>
+                  <div className="v2-results-player-list">
+                    {matchResult.players.map((player) => (
+                      <div
+                        key={player.playerId}
+                        className="v2-results-player-card"
+                        style={{
+                          background: player.won ? theme.panelAlt : theme.panelSoft,
+                          border: `1px solid ${player.won ? theme.accent : theme.border}`,
+                        }}
+                      >
+                        <div className="v2-results-player-head">
+                          <div style={{ minWidth: 0 }}>
+                            <div className="v2-results-player-name" style={{ color: theme.text }}>{player.playerName}</div>
+                            <div className="v2-results-player-meta" style={{ color: theme.muted }}>
+                              {player.won ? 'Winner' : 'Finished'}
+                              {player.isGodsFavourite ? " · God's Favourite" : ''}
+                            </div>
+                          </div>
+                          <div className="v2-results-player-badge" style={{
+                            background: player.won ? theme.accent : theme.panel,
+                            color: player.won ? '#1a1a2e' : theme.text,
+                          }}>
+                            {player.won ? 'WIN' : 'END'}
+                          </div>
+                        </div>
+                        <div className="v2-results-player-stats">
+                          <div><div className="v2-results-player-stat-label" style={{ color: theme.muted }}>Flowers Planted</div><div className="v2-results-player-stat-value">{player.flowersPlanted}</div></div>
+                          <div><div className="v2-results-player-stat-label" style={{ color: theme.muted }}>Garden Sets</div><div className="v2-results-player-stat-value">{player.gardenSetCount}</div></div>
+                          <div><div className="v2-results-player-stat-label" style={{ color: theme.muted }}>Completed Sets</div><div className="v2-results-player-stat-value">{player.completeSetCount}</div></div>
+                          <div><div className="v2-results-player-stat-label" style={{ color: theme.muted }}>Flowers In Garden</div><div className="v2-results-player-stat-value">{player.totalFlowers}</div></div>
+                          <div><div className="v2-results-player-stat-label" style={{ color: theme.muted }}>Solid Sets</div><div className="v2-results-player-stat-value">{player.solidSetCount}</div></div>
+                          <div><div className="v2-results-player-stat-label" style={{ color: theme.muted }}>Cards In Hand</div><div className="v2-results-player-stat-value">{player.handCount}</div></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="v2-results-actions">
+                    <button
+                      style={{ ...btn(theme.accent, '#1a1a2e'), fontSize: 12 }}
+                      onClick={() => matchCtx?.onLeave()}
+                    >
+                      Back to Lobby
+                    </button>
+                    <button
+                      style={{ ...btn('#555'), fontSize: 12 }}
+                      onClick={() => { void navigator.clipboard.writeText(matchCtx?.matchID ?? ''); }}
+                    >
+                      Copy Match ID
+                    </button>
+                  </div>
                 </>
               )}
               {modalOpen === 'rules' && (
@@ -3677,7 +4632,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                     }}>
                       <span style={{ fontSize: 15 }}>{set.isToken ? '💎' : setColor ? (FLOWER_EMOJI[setColor] ?? '🌸') : '🌈'}</span>
                       <span style={{ flex: 1 }}>
-                        {set.isToken ? 'Token set' : set.flowers.map(f => FLOWER_EMOJI[f.color] ?? '🌸').join('')}
+                        {set.isToken ? 'Token set' : set.flowers.map(f => FLOWER_EMOJI[flowerDisplayColor(f)] ?? '🌸').join('')}
                       </span>
                       {badge && <span>{badge}</span>}
                     </div>
