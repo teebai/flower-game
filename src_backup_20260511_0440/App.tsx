@@ -12,7 +12,7 @@ import { FlowerBoard } from './board/FlowerBoard';
 import { Lobby } from './lobby/Lobby';
 import { MatchContext, type MatchSeatPresence } from './matchContext';
 
-const DEFAULT_SERVER = 'http://localhost:8000';
+const DEFAULT_SERVER = 'https://flower.a133.mov';
 const SERVER = import.meta.env.VITE_GAME_SERVER_URL || DEFAULT_SERVER;
 
 // Client-side game definition.

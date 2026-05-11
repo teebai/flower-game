@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    allowedHosts: true,
     proxy: {
       // HTTP API calls (create match, join match)
       '/games': {
