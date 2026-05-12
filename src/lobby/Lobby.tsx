@@ -8,7 +8,7 @@ import { useAuth } from '../auth/AuthProvider';
 import type { MatchInfo } from '../auth/storage';
 import { CardArtManager } from '../cards/CardArtManager';
 
-const DEFAULT_SERVER = 'https://flower.a133.mov';
+const DEFAULT_SERVER = 'http://localhost:8000';
 const SERVER = import.meta.env.VITE_GAME_SERVER_URL || DEFAULT_SERVER;
 const IDENTITY_SERVER = import.meta.env.VITE_IDENTITY_SERVER_URL?.trim() || '';
 const GAME   = 'flower-game';

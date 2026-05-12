@@ -30,6 +30,7 @@ export const WaitingRoom = React.memo(function WaitingRoom({
   const roomReadyEnabled = joinedRoomCount >= G.minPlayers;
   const myReady = !!playerID && G.readyPlayerIds.includes(playerID);
   const iAmRoomOwner = !!playerID && G.ownerPlayerId === playerID;
+  const allReady = G.players.every(p => !p.name.trim() || G.readyPlayerIds.includes(p.id));
   const isOwner = playerID === G.ownerPlayerId;
 
   return (

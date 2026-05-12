@@ -789,15 +789,35 @@ server.app.use(async (ctx: any, next: () => Promise<void>) => {
   await next();
 });
 
-// ── Optionally serve built React client ──────────────────────
-// Uncomment once you have a frontend build:
-//
-// import express from 'express';
-// const clientBuild = path.join(__dirname, '../../client/build');
-// server.app.use(express.static(clientBuild));
-// server.app.get('*', (_req, res) => {
-//   res.sendFile(path.join(clientBuild, 'index.html'));
-// });
+// ── Serve built React client ────────────────────────────────
+const distDir = path.join(__dirname, '..');
+if (fs.existsSync(distDir)) {
+  server.app.use(async (ctx, next) => {
+    if (ctx.path.startsWith('/games/') || ctx.path.startsWith('/lobby') || ctx.path === '/version') {
+      return next();
+    }
+    let filePath = path.join(distDir, ctx.path);
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      filePath = path.join(distDir, 'index.html');
+    }
+    const ext = path.extname(filePath);
+    const mimeTypes: Record<string, string> = {
+      '.html': 'text/html',
+      '.js': 'application/javascript',
+      '.css': 'text/css',
+      '.json': 'application/json',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.svg': 'image/svg+xml',
+      '.woff2': 'font/woff2',
+      '.woff': 'font/woff',
+    };
+    ctx.type = mimeTypes[ext] || 'application/octet-stream';
+    ctx.body = fs.createReadStream(filePath);
+  });
+}
 
 // ── Turn timeout sweeper ─────────────────────────────────────
 

@@ -805,6 +805,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const previousGardenIdsRef = useRef<Record<string, string[]>>(snapshotGardenIds(G.players));
   const previousGardenStateRef = useRef<GardenSnapshot>(snapshotGardenState(G.players));
   const submitUnlockRef = useRef<number | null>(null);
+  const actionSheetRef = useRef<HTMLDivElement | null>(null);
   const gardenVisualEffectTimerRef = useRef<number | null>(null);
   const gardenSettleTimersRef = useRef<Record<string, number>>({});
   const previousLogLengthRef = useRef<number>(G.log.length);
