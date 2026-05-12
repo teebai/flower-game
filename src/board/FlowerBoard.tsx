@@ -150,6 +150,7 @@ function canChooseColorForNewSet(card: FlowerCard | null | undefined): boolean {
 
 import { InlineCardLabel } from './components/InlineCardLabel';
 import { WaitingRoom } from './components/WaitingRoom';
+import { MoveButtonBar } from './components/MoveButtonBar';
 
 type MoveSfxPreset = {
   type: OscillatorType;
@@ -4109,45 +4110,35 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       <div className="v2-action-row" style={{ background: theme.panel, borderTop: `1px solid ${theme.border}` }}>
         {/* Left: Moves */}
         <div className="v2-moves-panel" style={{ borderRight: `1px solid ${theme.border}` }}>
-          {myTurn && G.phase === 'action' ? (
-            <>
-              <div style={{ fontSize: 10, color: theme.muted, marginBottom: 4 }}>
-                Moves: <b style={{ color: theme.accent }}>{G.movesRemaining}</b>
-              </div>
-              <div className="v2-move-buttons">
-                {hasFlower && <button className="v2-move-btn" title="Plant (own)" onClick={() => { setMoveType('plantOwn'); setStep('pick-card'); }}>🌱</button>}
-                {hasFlower && opponents.length > 0 && <button className="v2-move-btn" title="Plant (opponent)" onClick={() => { setMoveType('plantOpponent'); setStep('pick-card'); }}>🌿</button>}
-                {has('wind') && <button className="v2-move-btn" title="Wind ×1" onClick={() => { setMoveType('playWindSingle'); setStep('pick-card'); }}>💨</button>}
-                {has('bug') && <button className="v2-move-btn" title="Bug" onClick={() => { setMoveType('playBug'); setStep('pick-card'); }}>🐛</button>}
-                {has('bee') && <button className="v2-move-btn" title="Bee" onClick={() => { setMoveType('playBee'); setStep('pick-card'); }}>🐝</button>}
-                {has('double_happiness') && <button className="v2-move-btn" title="Double Happiness" onClick={() => { setMoveType('doubleHappiness'); setStep('pick-card'); }}>🎉</button>}
-                {has('trade_present') && <button className="v2-move-btn" title="Trade Present" onClick={() => beginTradePresentFlow()}>🎁</button>}
-                {has('trade_fate') && <button className="v2-move-btn" title="Trade Fate" onClick={() => { setMoveType('tradeFate'); setStep('pick-card'); }}>🔀</button>}
-                {has('let_go') && <button className="v2-move-btn" title="Let Go" onClick={() => { setMoveType('letGo'); setStep('pick-card'); }}>✋</button>}
-                {['spring','summer','autumn','winter'].some(s => has(s)) && <button className="v2-move-btn" title="Season" onClick={() => { setMoveType('playSeason'); setStep('pick-card'); }}>🌸</button>}
-                {has('natural_disaster') && hasNaturalDisasterTarget && <button className="v2-move-btn" title="Natural Disaster" onClick={() => { setMoveType('naturalDisaster'); setStep('pick-card'); }}>🌪️</button>}
-                {has('eclipse') && <button className="v2-move-btn" title="Eclipse" onClick={() => { setMoveType('playEclipse'); setStep('pick-card'); }}>🌑</button>}
-                {has('great_reset') && <button className="v2-move-btn" title="Great Reset" onClick={() => { setMoveType('playGreatReset'); setStep('pick-card'); }}>♻️</button>}
-                {G.season === 'autumn' && hasFlower && <button className="v2-move-btn" title="Discard Flower" onClick={() => { setMoveType('discardFlower'); setStep('pick-card'); }}>🍂</button>}
-                <button className="v2-move-btn" style={{ opacity: 0.7 }} title="Pass turn" onClick={() => runMove(() => m.pass())}>⏩</button>
-              </div>
-            </>
-          ) : G.phase === 'draw' && myTurn ? (
-            drawPhaseSeason === 'winter' && (me?.hand.length ?? 0) > 0
-              ? <div style={{ fontSize: 11, color: theme.muted }}>❄️ No draw in winter…</div>
-              : <button className="v2-move-btn" style={{ fontSize: 18 }} title="Draw cards" onClick={() => runMove(() => m.pass())}>🃏</button>
-          ) : G.phase === 'blessing' && myTurn ? (
-            <div style={{ fontSize: 11, color: '#e6c84a' }}>👑 Blessing…</div>
-          ) : isCounter && amTarget && inStage ? (
-            <div style={{ fontSize: 11, color: '#e94560' }}>⚡ Counter!</div>
-          ) : (
-            <div style={{ fontSize: 11, color: theme.muted }}>
-              {isCounter
-                ? `⏳ ${nameOf(G.players.find(p => p.id === G.pendingAction?.targetPlayerId))}…`
-                : `⏳ ${nameOf(G.players.find(p => p.id === G.turnOrder[G.currentPlayerIndex]))}`
-              }
-            </div>
-          )}
+          <MoveButtonBar
+            hand={myHand}
+            opponents={opponents}
+            G={G}
+            myTurn={myTurn}
+            hasNaturalDisasterTarget={hasNaturalDisasterTarget}
+            drawPhaseSeason={drawPhaseSeason}
+            handCount={me?.hand.length ?? 0}
+            isCounter={isCounter}
+            amTarget={amTarget}
+            inStage={inStage}
+            nameOf={nameOf}
+            onPlantOwn={() => { setMoveType('plantOwn'); setStep('pick-card'); }}
+            onPlantOpponent={() => { setMoveType('plantOpponent'); setStep('pick-card'); }}
+            onWind={() => { setMoveType('playWindSingle'); setStep('pick-card'); }}
+            onBug={() => { setMoveType('playBug'); setStep('pick-card'); }}
+            onBee={() => { setMoveType('playBee'); setStep('pick-card'); }}
+            onDoubleHappiness={() => { setMoveType('doubleHappiness'); setStep('pick-card'); }}
+            onTradePresent={() => beginTradePresentFlow()}
+            onTradeFate={() => { setMoveType('tradeFate'); setStep('pick-card'); }}
+            onLetGo={() => { setMoveType('letGo'); setStep('pick-card'); }}
+            onSeason={() => { setMoveType('playSeason'); setStep('pick-card'); }}
+            onNaturalDisaster={() => { setMoveType('naturalDisaster'); setStep('pick-card'); }}
+            onEclipse={() => { setMoveType('playEclipse'); setStep('pick-card'); }}
+            onGreatReset={() => { setMoveType('playGreatReset'); setStep('pick-card'); }}
+            onDiscardFlower={() => { setMoveType('discardFlower'); setStep('pick-card'); }}
+            onPass={() => runMove(() => m.pass())}
+            onDraw={() => runMove(() => m.pass())}
+          />
         </div>
 
         {/* Center: Hand */}
