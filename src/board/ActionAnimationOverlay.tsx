@@ -7,7 +7,7 @@ export interface ActionAnimationOverlayProps {
   onComplete: () => void;
 }
 
-const AUTO_DISMISS_MS = 2500;
+const AUTO_DISMISS_MS = 4000;
 
 export const ActionAnimationOverlay = memo(function ActionAnimationOverlay({ active, onComplete }: ActionAnimationOverlayProps) {
   const [visible, setVisible] = useState(false);
