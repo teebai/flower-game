@@ -148,26 +148,7 @@ function canChooseColorForNewSet(card: FlowerCard | null | undefined): boolean {
   return !!card && (wildcardNeedsChosenColor(card) || card.color === 'triple_rainbow');
 }
 
-function InlineCardLabel({ card }: { card: Card }) {
-  if (card.kind === 'flower') {
-    const art = flowerArt(card.color);
-    return (
-      <span className="inline-card-label">
-        {art
-          ? <img src={art} alt={card.color} className="inline-flower-icon" />
-          : <span aria-hidden="true">{FLOWER_EMOJI[card.color] ?? '🌺'}</span>}
-        <span>{cardName(card)}</span>
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-card-label">
-      <span aria-hidden="true">{cardLabel(card)}</span>
-      <span>{cardName(card)}</span>
-    </span>
-  );
-}
+import { InlineCardLabel } from './components/InlineCardLabel';
 
 type MoveSfxPreset = {
   type: OscillatorType;
