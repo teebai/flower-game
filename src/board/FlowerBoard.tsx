@@ -149,6 +149,7 @@ function canChooseColorForNewSet(card: FlowerCard | null | undefined): boolean {
 }
 
 import { InlineCardLabel } from './components/InlineCardLabel';
+import { WaitingRoom } from './components/WaitingRoom';
 
 type MoveSfxPreset = {
   type: OscillatorType;
@@ -3651,153 +3652,17 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   if (G.phase === 'waiting') {
     return (
       <div className={shellClass} style={theme.pageStyle}>
-        <div className="waiting-room-shell">
-          <div
-            className="waiting-room-panel"
-            style={{
-              background: theme.panel,
-              border: `1px solid ${theme.border}`,
-              boxShadow: `0 24px 60px ${theme.glow}`,
-            }}
-          >
-            <div className="waiting-room-header">
-              <div className="waiting-room-heading">
-                <div className="waiting-room-kicker" style={{ color: theme.muted }}>
-                  Waiting Room
-                </div>
-                <h1 className="waiting-room-title" style={{ color: theme.text }}>{G.roomName || 'Flower Room'}</h1>
-                <div className="waiting-room-subtitle" style={{ color: theme.muted }}>
-                  Hosted by <b style={{ color: theme.text }}>{roomOwnerName}</b> · room ID <span style={{ fontFamily: 'monospace', color: theme.text }}>{matchCtx?.matchID}</span>
-                </div>
-              </div>
-              <div
-                className="waiting-room-rules"
-                style={{
-                  background: theme.panelSoft,
-                  border: `1px solid ${theme.border}`,
-                  color: theme.text,
-                }}
-              >
-                <div className="waiting-room-card-label">Room rules</div>
-                <div className="waiting-room-card-copy" style={{ color: theme.muted }}>
-                  {G.minPlayers}-{G.maxPlayers} players. Seats shuffle when the owner starts the game, and the opening player is chosen from that shuffled order.
-                </div>
-              </div>
-            </div>
-
-            <div className="waiting-room-seat-grid">
-              {G.players.map((player, index) => {
-                const occupied = !!player.name.trim();
-                const isMine = player.id === playerID;
-                const isOwnerSeat = player.id === G.ownerPlayerId;
-                const isReady = G.readyPlayerIds.includes(player.id);
-                return (
-                  <div
-                    key={player.id}
-                    className="waiting-room-seat-card"
-                    style={{
-                      border: `1px solid ${occupied ? theme.accent : theme.border}`,
-                      background: occupied ? theme.panelSoft : theme.panelAlt,
-                      opacity: occupied ? 1 : 0.82,
-                    }}
-                  >
-                    <div className="waiting-room-seat-top">
-                      <div className="waiting-room-seat-index" style={{ color: theme.muted }}>Seat {index + 1}</div>
-                      <div className="waiting-room-seat-badges">
-                        {isOwnerSeat && (
-                          <span className="waiting-room-badge" style={{ color: theme.text, background: theme.panel }}>
-                            Owner
-                          </span>
-                        )}
-                        {occupied && isReady && (
-                          <span className="waiting-room-badge" style={{ color: '#1a1a2e', background: '#4ecca3' }}>
-                            Ready
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="waiting-room-seat-name" style={{ color: occupied ? theme.text : theme.muted }}>
-                      {occupied ? player.name : 'Open seat'}
-                    </div>
-                    <div className="waiting-room-seat-copy" style={{ color: theme.muted }}>
-                      {occupied
-                        ? isMine
-                          ? 'This is your seat.'
-                          : 'Joined and waiting.'
-                        : 'Another player can join here.'}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="waiting-room-footer-grid">
-              <div
-                className="waiting-room-info-card"
-                style={{
-                  background: theme.panelSoft,
-                  border: `1px solid ${theme.border}`,
-                }}
-              >
-                <div className="waiting-room-card-label" style={{ color: theme.muted }}>Status</div>
-                <div className="waiting-room-status-value" style={{ color: theme.text }}>
-                  {joinedRoomCount}/{G.maxPlayers} joined
-                </div>
-                <div className="waiting-room-card-copy" style={{ color: theme.muted }}>
-                  {roomReadyEnabled
-                    ? 'Minimum players reached. Everyone can ready up, and the owner can start whenever the room is set.'
-                    : `Need ${G.minPlayers - joinedRoomCount} more player${G.minPlayers - joinedRoomCount === 1 ? '' : 's'} before ready becomes available.`}
-                </div>
-              </div>
-
-              <div
-                className="waiting-room-actions-card"
-                style={{
-                  background: theme.panelSoft,
-                  border: `1px solid ${theme.border}`,
-                }}
-              >
-                <div className="waiting-room-card-label" style={{ color: theme.muted }}>Actions</div>
-                <button
-                  type="button"
-                  className="waiting-room-action-button"
-                  disabled={!playerID || !me?.name.trim() || !roomReadyEnabled || isSubmitting}
-                  onClick={() => runMove(() => m.toggleReady())}
-                  style={btn(myReady ? '#d8dde4' : '#4ecca3', myReady ? '#1a1a2e' : '#1a1a2e')}
-                >
-                  {myReady ? 'Unready' : 'Ready'}
-                </button>
-                {iAmRoomOwner && (
-                  <button
-                    type="button"
-                    className="waiting-room-action-button"
-                    disabled={!roomReadyEnabled || isSubmitting}
-                    onClick={() => runMove(() => m.startGame())}
-                    style={btn('#e94560', '#fff')}
-                  >
-                    {isSubmitting ? 'Starting...' : 'Start Game'}
-                  </button>
-                )}
-                {!iAmRoomOwner && (
-                  <div className="waiting-room-card-copy" style={{ color: theme.muted }}>
-                    The room owner starts the match once the table is ready.
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className="waiting-room-action-button"
-                  onClick={() => matchCtx?.onLeave()}
-                  style={btn('#555')}
-                >
-                  Leave Room
-                </button>
-                {error && (
-                  <div style={{ color: '#e94560', fontSize: 13 }}>⚠️ {error}</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <WaitingRoom
+        G={G}
+        playerID={playerID}
+        theme={theme}
+        matchCtx={matchCtx}
+        nameOf={nameOf}
+        isSubmitting={isSubmitting}
+        onStart={() => runMove(() => m.startGame())}
+        onReady={() => runMove(() => m.toggleReady())}
+        onLeave={() => matchCtx?.onLeave()}
+      />
       </div>
     );
   }

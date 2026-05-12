@@ -13,20 +13,24 @@ interface WaitingRoomProps {
     muted: string;
     accent: string;
     glow: string;
-    pageStyle: React.CSSProperties;
   };
   matchCtx: { matchID: string } | null;
+  nameOf: (player?: import('../../types/gameTypes').Player | null) => string;
+  isSubmitting: boolean;
   onStart: () => void;
   onReady: () => void;
   onLeave: () => void;
 }
 
 export const WaitingRoom = React.memo(function WaitingRoom({
-  G, playerID, theme, matchCtx, onStart, onReady, onLeave,
+  G, playerID, theme, matchCtx, nameOf, isSubmitting, onStart, onReady, onLeave,
 }: WaitingRoomProps) {
-  const roomOwnerName = G.players.find(p => p.id === G.ownerPlayerId)?.name ?? 'Unknown';
+  const roomOwnerName = nameOf(G.players.find(p => p.id === G.ownerPlayerId) ?? null) || 'Room owner';
+  const joinedRoomCount = G.players.filter(p => p.name.trim()).length;
+  const roomReadyEnabled = joinedRoomCount >= G.minPlayers;
+  const myReady = !!playerID && G.readyPlayerIds.includes(playerID);
+  const iAmRoomOwner = !!playerID && G.ownerPlayerId === playerID;
   const isOwner = playerID === G.ownerPlayerId;
-  const allReady = G.players.every(p => !p.name.trim() || G.readyPlayerIds.includes(p.id));
 
   return (
     <div className="waiting-room-shell">
