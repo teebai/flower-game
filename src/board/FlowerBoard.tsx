@@ -11,6 +11,7 @@ import {
   FLOWER_EMOJI, POWER_EMOJI, SEASON_COLOR,
   cardLabel, cardName, isFlower, isPower, cardDetail, escapeRegExp,
 } from '../cards/cardUtils';
+import { flowerDisplayColor, gardenSetColor } from '../utils/gardenUtils';
 import { CardChip } from '../cards/CardChip';
 import { DEFAULT_CARD_ART } from '../cards/defaultCardArt';
 
@@ -25,6 +26,8 @@ import { GrassField } from './GrassField';
 import { WindPathCanvas } from './WindPathCanvas';
 import { ActionAnimationOverlay } from './ActionAnimationOverlay';
 import { getActionAnimation } from '../cards/actionAnimations';
+import { DisconnectOverlay } from './components/DisconnectOverlay';
+import { PlayerInfoModal } from './components/PlayerInfoModal';
 
 const MOVE_LABELS: Record<string, string> = {
   plantOwn: '🌱 Plant in your garden',
@@ -344,21 +347,6 @@ function describeGardenSet(set: GardenSet | null | undefined): string {
   return `${set.flowers.length}-flower ${colorLabel} set`;
 }
 
-function flowerDisplayColor(flower: FlowerCard): FlowerColor {
-  return flower.representedColor ?? flower.color;
-}
-
-function gardenSetColor(set: GardenSet): FlowerColor | null {
-  if (set.isToken) return null;
-  const anchorFlower = set.flowers.find(f => {
-    const displayColor = flowerDisplayColor(f);
-    return displayColor !== 'rainbow' && displayColor !== 'triple_rainbow' && displayColor !== 'divine';
-  }) ?? set.flowers.find(f => {
-    const displayColor = flowerDisplayColor(f);
-    return displayColor !== 'triple_rainbow' && displayColor !== 'divine';
-  });
-  return anchorFlower ? flowerDisplayColor(anchorFlower) : null;
-}
 
 function gardenDensityClass(count: number): string {
   if (count >= 6) return 'garden-density-compact';
@@ -4598,101 +4586,19 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           </div>
         </div>
       )}
-      {playerInfoPlayerId && (() => {
-        const infoPlayer = G.players.find(p => p.id === playerInfoPlayerId);
-        if (!infoPlayer) return null;
-        return (
-          <div className="v2-modal-backdrop" onClick={() => setPlayerInfoPlayerId(null)}>
-            <div className="v2-modal" style={{ background: theme.panel, border: `1px solid ${theme.border}` }}
-              onClick={e => e.stopPropagation()}>
-              <div className="v2-modal-header" style={{ borderBottom: `1px solid ${theme.border}` }}>
-                <span style={{ fontWeight: 700, color: theme.text }}>🌿 {nameOf(infoPlayer)}</span>
-                <button className="icon-btn" onClick={() => setPlayerInfoPlayerId(null)}>✕</button>
-              </div>
-              <div className="v2-modal-body" style={{ color: theme.text }}>
-                <div style={{ marginBottom: 12, fontSize: 13 }}>
-                  🃏 <b>{infoPlayer.hand.length}</b> card{infoPlayer.hand.length !== 1 ? 's' : ''} in hand
-                </div>
-                <div style={{ fontSize: 12, color: theme.muted, marginBottom: 6 }}>
-                  {infoPlayer.garden.sets.length === 0 ? 'No sets yet.' : `${infoPlayer.garden.sets.length} set${infoPlayer.garden.sets.length !== 1 ? 's' : ''}:`}
-                </div>
-                {infoPlayer.garden.sets.map(set => {
-                  const setColor = gardenSetColor(set);
-                  const badge = set.isToken ? '💎' : set.isDivine ? '👑' : set.isSolid ? '💛' : set.isComplete ? '✅' : '';
-                  return (
-                    <div key={set.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      marginBottom: 6, padding: '5px 8px',
-                      background: theme.panelSoft, borderRadius: 8,
-                      fontSize: 13,
-                    }}>
-                      <span style={{ fontSize: 15 }}>{set.isToken ? '💎' : setColor ? (FLOWER_EMOJI[setColor] ?? '🌸') : '🌈'}</span>
-                      <span style={{ flex: 1 }}>
-                        {set.isToken ? 'Token set' : set.flowers.map(f => FLOWER_EMOJI[flowerDisplayColor(f)] ?? '🌸').join('')}
-                      </span>
-                      {badge && <span>{badge}</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-      {showDisconnect && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 9000,
-          background: 'rgba(0,0,0,0.75)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: 24,
-        }}>
-          <div style={{
-            background: theme.panel,
-            border: `1px solid ${theme.border}`,
-            borderRadius: 18,
-            padding: '32px 28px',
-            textAlign: 'center',
-            maxWidth: 340,
-            width: '100%',
-            boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
-          }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>
-              {disconnectReason === 'match-gone' ? '🚫' : '🔌'}
-            </div>
-            <div style={{ fontWeight: 700, fontSize: 17, color: theme.text, marginBottom: 8 }}>
-              {disconnectReason === 'match-gone' ? 'Match Ended' : 'Connection Lost'}
-            </div>
-            <div style={{ fontSize: 13, color: theme.muted, marginBottom: 24, lineHeight: 1.6 }}>
-              {disconnectReason === 'match-gone'
-                ? 'This match no longer exists on the server — it may have been ended or deleted.'
-                : 'You\'ve been disconnected from the game server. Refresh the page to reconnect — your match is saved.'}
-            </div>
-            <button
-              onClick={() => window.location.reload()}
-              style={{
-                width: '100%', padding: '11px 0',
-                background: 'linear-gradient(135deg,#e94560,#c73652)',
-                color: '#fff', border: 'none', borderRadius: 10,
-                fontWeight: 700, fontSize: 15, cursor: 'pointer',
-                marginBottom: 10,
-              }}
-            >
-              🔄 {disconnectReason === 'match-gone' ? 'Back to Lobby' : 'Refresh Page'}
-            </button>
-            <button
-              onClick={() => setDisconnectReason(null)}
-              style={{
-                width: '100%', padding: '8px 0',
-                background: 'transparent', border: `1px solid ${theme.border}`,
-                color: theme.muted, borderRadius: 10,
-                fontSize: 13, cursor: 'pointer',
-              }}
-            >
-              Dismiss (stay on page)
-            </button>
-          </div>
-        </div>
-      )}
+      <PlayerInfoModal
+        playerId={playerInfoPlayerId}
+        players={G.players}
+        theme={theme}
+        nameOf={nameOf}
+        onClose={() => setPlayerInfoPlayerId(null)}
+      />
+      <DisconnectOverlay
+        show={showDisconnect}
+        reason={disconnectReason}
+        theme={theme}
+        onDismiss={() => setDisconnectReason(null)}
+      />
       <WindPathCanvas
         flights={windFlights}
         onComplete={(id) => setWindFlights(prev => prev.filter(f => f.id !== id))}
