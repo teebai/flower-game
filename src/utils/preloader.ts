@@ -4,7 +4,7 @@
 // Fixes broken card images on slow connections.
 // ============================================================
 
-import type { Card } from '../types';
+import type { Card } from '../types/gameTypes';
 import { cardArtKey } from '../cards/cardArt';
 
 /** Preload a single image */

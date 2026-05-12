@@ -6,6 +6,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardProps } from 'boardgame.io/react';
 import type { GameState, Card, FlowerCard, GardenSet, PendingAction, Player, FlowerColor } from '../types/gameTypes';
+import type { PowerCardName } from '../types/gameTypes';
 import {
   FLOWER_EMOJI, POWER_EMOJI, SEASON_COLOR,
   cardLabel, cardName, isFlower, isPower, cardDetail, escapeRegExp,
@@ -23,7 +24,6 @@ import { GardenFlowerField } from './GardenFlowerField';
 import { GrassField } from './GrassField';
 import { WindPathCanvas } from './WindPathCanvas';
 import { ActionAnimationOverlay } from './ActionAnimationOverlay';
-import type { PowerCardName } from '../types';
 import { getActionAnimation } from '../cards/actionAnimations';
 
 const MOVE_LABELS: Record<string, string> = {
@@ -2234,14 +2234,55 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     previousSeatPresenceRef.current = currentSeatPresence;
   }, [matchCtx?.seatPresence]);
 
-  // ── Log unread tracking (global animation detection disabled for debugging) ──
+  // ── Log unread tracking + global animation detection ──
   const prevLogLenRef = useRef(G.log.length);
+  const prevLogAnimRef = useRef<Set<string>>(new Set());
+
+  /** Detect power-card plays from log entries (for OTHER players' animations) */
+  function detectPowerCardFromLog(entry: string): { name: PowerCardName; phase: 'cast' } | null {
+    if (entry.includes('with Wind')) return { name: 'wind', phase: 'cast' };
+    if (entry.includes('used Bug on')) return { name: 'bug', phase: 'cast' };
+    if (entry.includes('used Bee')) return { name: 'bee', phase: 'cast' };
+    if (entry.includes('used Double Happiness')) return { name: 'double_happiness', phase: 'cast' };
+    if (entry.includes('(Trade Present)')) return { name: 'trade_present', phase: 'cast' };
+    if (entry.includes('(Trade Fate)')) return { name: 'trade_fate', phase: 'cast' };
+    if (entry.includes('played Let Go')) return { name: 'let_go', phase: 'cast' };
+    if (entry.includes('played Spring')) return { name: 'spring', phase: 'cast' };
+    if (entry.includes('played Summer')) return { name: 'summer', phase: 'cast' };
+    if (entry.includes('played Autumn')) return { name: 'autumn', phase: 'cast' };
+    if (entry.includes('played Winter')) return { name: 'winter', phase: 'cast' };
+    if (entry.includes('unleashed Natural Disaster')) return { name: 'natural_disaster', phase: 'cast' };
+    if (entry.includes('played Eclipse')) return { name: 'eclipse', phase: 'cast' };
+    if (entry.includes('triggered Great Reset')) return { name: 'great_reset', phase: 'cast' };
+    return null;
+  }
+
   useEffect(() => {
-    if (G.log.length > prevLogLenRef.current && !logOpen) {
-      setLogUnread(u => u + (G.log.length - prevLogLenRef.current));
+    if (G.log.length > prevLogLenRef.current) {
+      const newEntries = G.log.slice(prevLogLenRef.current);
+      if (!logOpen) {
+        setLogUnread(u => u + newEntries.length);
+      }
+      // Check for OTHER players' power card plays to show animations
+      for (const entry of newEntries) {
+        const anim = detectPowerCardFromLog(entry);
+        if (anim) {
+          // Don't re-show if we already saw this exact entry
+          const key = `${G.log.length - newEntries.length + newEntries.indexOf(entry)}-${entry}`;
+          if (!prevLogAnimRef.current.has(key)) {
+            prevLogAnimRef.current.add(key);
+            // Limit set size
+            if (prevLogAnimRef.current.size > 50) {
+              const iter = prevLogAnimRef.current.values();
+              prevLogAnimRef.current.delete(iter.next().value);
+            }
+            setActiveAnimation(anim);
+          }
+        }
+      }
     }
     prevLogLenRef.current = G.log.length;
-  }, [G.log.length, logOpen]);
+  }, [G.log, logOpen]);
 
   useEffect(() => {
     const latestEntry = G.log[G.log.length - 1];
@@ -2310,7 +2351,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
 
   /** Trigger a power-card animation overlay before executing the move */
   function runMoveWithAnim(fn: () => void, anim: { name: PowerCardName; phase: 'cast' | 'success' | 'win'; targetPlayerId?: string }) {
-    // TEMP: skip animation overlay to debug blank screen
+    setActiveAnimation(anim);
     runMove(fn);
   }
 
@@ -2321,7 +2362,10 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     if (cards.length === 1) {
       const c = cards[0];
       if (type === 'letGo') runMoveWithAnim(() => m.letGo(c.id), { name: 'let_go', phase: 'cast' });
-      else if (type === 'playSeason') runMoveWithAnim(() => m.playSeason(c.id), { name: c.name as PowerCardName, phase: 'cast' });
+      else if (type === 'playSeason') {
+        const seasonName = (!isFlower(c) && c.kind === 'power') ? c.name : 'spring';
+        runMoveWithAnim(() => m.playSeason(c.id), { name: seasonName as PowerCardName, phase: 'cast' });
+      }
       else if (type === 'playEclipse') runMoveWithAnim(() => m.playEclipse(c.id), { name: 'eclipse', phase: 'cast' });
       else if (type === 'playGreatReset') runMoveWithAnim(() => m.playGreatReset(c.id), { name: 'great_reset', phase: 'cast' });
       return;
@@ -2537,9 +2581,12 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       case 'letGo':
         runMoveWithAnim(() => m.letGo(c1), { name: 'let_go', phase: 'cast' });
         break;
-      case 'playSeason':
-        runMoveWithAnim(() => m.playSeason(c1), { name: (selectedCards[0]?.name || 'spring') as PowerCardName, phase: 'cast' });
+      case 'playSeason': {
+        const firstCard = selectedCards[0];
+        const seasonName = (firstCard && !isFlower(firstCard) && firstCard.kind === 'power') ? firstCard.name : 'spring';
+        runMoveWithAnim(() => m.playSeason(c1), { name: seasonName as PowerCardName, phase: 'cast' });
         break;
+      }
       case 'naturalDisaster':
         runMoveWithAnim(() => m.naturalDisaster(c1, targetPlayer, targetSet), { name: 'natural_disaster', phase: 'cast', targetPlayerId: targetPlayer });
         break;

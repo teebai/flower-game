@@ -162,7 +162,7 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
                 zIndex: Math.floor(p.size),
                 willChange: 'transform',
                 cursor: hoverLevel === 'set' ? 'pointer' : 'default',
-              }}
+              } as React.CSSProperties}
               onPointerEnter={(e) => {
                 e.stopPropagation();
                 setHoveredFlowerId(p.id);

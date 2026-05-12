@@ -22,7 +22,7 @@ import naturalDisasterAnim2 from '../assets/animations/natural_disaster-animatio
 import eclipseAnim from '../assets/animations/eclipse-animation.gif';
 import greatResetAnim from '../assets/animations/great_reset-animation.gif';
 
-import type { PowerCardName } from '../types';
+import type { PowerCardName } from '../types/gameTypes';
 
 export type AnimationPhase = 'cast' | 'success' | 'win';
 
