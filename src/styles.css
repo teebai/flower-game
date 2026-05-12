@@ -6,7 +6,7 @@
    ============================================================ */
 
 :root {
-  --bg: #1a1a2e;
+  --bg: #faf5f7;
   --panel: #16213e;
   --panel-alt: #0f3460;
   --surface: rgba(255, 255, 255, 0.03);
@@ -24,8 +24,8 @@
   --text-hint: #aaa;
   --danger: #e94560;
 
-  --card-chip-w: 56px;
-  --card-chip-h: 76px;
+  --card-chip-w: 68px;
+  --card-chip-h: 92px;
   --radius: 12px;
   --radius-sm: 8px;
   --font-playful: 'Fredoka', 'Trebuchet MS', 'Comic Sans MS', cursive;
@@ -2421,8 +2421,8 @@ input, select, textarea { font-family: inherit; }
 
 @media (max-width: 640px) {
   :root {
-    --card-chip-w: 50px;
-    --card-chip-h: 68px;
+    --card-chip-w: 58px;
+    --card-chip-h: 78px;
   }
   .page { padding: 8px; padding-bottom: calc(8px + var(--safe-inset-b)); }
   .player-grid { grid-template-columns: 1fr; gap: 12px; }
@@ -2705,26 +2705,36 @@ input, select, textarea { font-family: inherit; }
   background-repeat: no-repeat;
 }
 
-.card-chip .label {
+/* New: real <img> tag for reliable loading with onerror */
+.card-chip .art {
   position: absolute;
-  left: 0; right: 0; bottom: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0));
-  color: #fff;
-  font-size: 9px;
-  padding: 4px 2px 3px;
-  line-height: 1.1;
-  text-align: center;
-  text-transform: capitalize;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 2;
 }
 
-.card-chip.no-art .label {
-  background: none;
-  position: static;
-  color: #aaa;
-  padding: 2px 0 0;
-  font-weight: normal;
+/* Emoji fallback */
+.card-chip .emoji {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  z-index: 1;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+
+/* When art is present, hide the emoji */
+.card-chip.has-art .emoji {
+  display: none;
+}
+
+/* NO label shown — card art has handwritten names baked in */
+.card-chip .label {
+  display: none !important;
 }
 
 .card-chip.no-art { justify-content: center; }
@@ -3459,9 +3469,16 @@ input, select, textarea { font-family: inherit; }
   position: fixed;
   pointer-events: none;
   z-index: 1450;
-  transform: rotate(-4deg) scale(1.05);
+  transform: scale(1.08);
   transform-origin: center center;
-  filter: drop-shadow(0 18px 28px rgba(14, 20, 40, 0.32));
+  filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.45));
+}
+
+/* On mobile: keep scale but center it so card stays under finger */
+@media (hover: none) and (pointer: coarse) {
+  .drag-card-overlay {
+    transform: scale(1.05);
+  }
 }
 
 .drag-card-overlay .card-chip {
@@ -4198,6 +4215,7 @@ input, select, textarea { font-family: inherit; }
   font-size: 13px;
   position: relative;
   isolation: isolate;
+  background: #faf5f7;
 }
 
 .v2-header {
@@ -4369,7 +4387,50 @@ input, select, textarea { font-family: inherit; }
 }
 
 .v2-playfield { grid-area: play; position: relative; overflow: hidden; min-width: 0; min-height: 0; max-width: 100%; }
-.v2-playfield .board-arena-radial { position: absolute !important; inset: 0 !important; margin: 0 !important; height: 100% !important; min-height: 0 !important; overflow: hidden; }
+.v2-playfield .board-arena-radial { position: absolute !important; inset: 0 !important; margin: 0 !important; height: 100% !important; min-height: 0 !important; overflow: visible; }
+
+/* ===== GARDEN RADIAL POSITIONING (fixes stacked gardens) ===== */
+.arena-pan-stage {
+  position: absolute;
+  inset: 0;
+  transform: translate(var(--arena-pan-x, 0px), var(--arena-pan-y, 0px));
+  will-change: transform;
+}
+.arena-zoom-stage {
+  position: absolute;
+  inset: 0;
+  transform: scale(var(--arena-zoom, 1));
+  transform-origin: center center;
+  will-change: transform;
+}
+.player-garden {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(var(--pg-w, 200px), 32vw);
+  height: min(var(--pg-h, 150px), 22vh);
+  transform: translate(calc(-50% + var(--pg-x, 0px)), calc(-50% + var(--pg-y, 0px)));
+  will-change: transform;
+  z-index: 1;
+}
+.player-garden.is-current-turn { z-index: 5; }
+.player-garden.is-targeted { z-index: 6; }
+.garden-body { width: 100%; height: 100%; position: relative; }
+.garden-particle-field { width: 100% !important; height: 100% !important; }
+
+/* Mobile responsive gardens */
+@media (max-width: 600px) {
+  .player-garden {
+    width: min(var(--pg-w, 180px), 42vw);
+    height: min(var(--pg-h, 130px), 18vh);
+  }
+}
+@media (min-width: 601px) and (max-width: 900px) {
+  .player-garden {
+    width: min(var(--pg-w, 200px), 38vw);
+    height: min(var(--pg-h, 145px), 20vh);
+  }
+}
 
 .arena-overlay-controls {
   position: absolute;
@@ -4536,10 +4597,10 @@ input, select, textarea { font-family: inherit; }
 
 .v2-action-row {
   grid-area: action; display: grid; grid-template-columns: 140px 1fr;
-  border-top: 1px solid rgba(205,159,189,0.3); background: rgba(255,250,253,0.92);
-  backdrop-filter: blur(16px); overflow: visible; min-width: 0; min-height: 0; max-width: 100%; position: relative; z-index: 20;
+  border-top: none; background: transparent !important;
+  backdrop-filter: none; overflow: visible; min-width: 0; min-height: 0; max-width: 100%; position: relative; z-index: 20;
 }
-.v2-moves-panel { border-right: 1px solid rgba(205,159,189,0.24); padding: 5px 7px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.v2-moves-panel { border-right: none; padding: 5px 7px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .v2-moves-label { font-size: 9px; text-transform: uppercase; letter-spacing: .07em; color: #7d5470; font-weight: 700; flex: 0 0 auto; white-space: nowrap; }
 .v2-moves-label b { color: #5b2944; }
 .v2-moves-btns { display: flex; flex-wrap: wrap; gap: 3px; overflow: hidden; flex: 1; align-content: flex-start; }
@@ -4560,6 +4621,9 @@ input, select, textarea { font-family: inherit; }
   overflow: visible;
   min-width: 0;
   z-index: 30;
+  background: transparent !important;
+  border-top: none !important;
+  box-shadow: none !important;
 }
 .v2-hand-label { font-size: 9px; text-transform: uppercase; letter-spacing: .07em; color: #7d5470; font-weight: 700; flex: 0 0 auto; text-align: center; white-space: nowrap; }
 .v2-hand-row {
@@ -4588,7 +4652,7 @@ input, select, textarea { font-family: inherit; }
 .v2-hand-row .hand-card-fan { margin-left: 0; margin-right: 5px; scroll-snap-align: center; }
 .v2-hand-row .hand-card-fan:first-child { margin-left: 0; }
 .v2-hand-dock.is-play-turn .v2-hand-row .card-chip.draggable { touch-action: pan-x; }
-.v2-hand-dock.is-reorder-turn .v2-hand-row .card-chip.draggable { touch-action: none; }
+.v2-hand-dock.is-reorder-turn .v2-hand-row .card-chip.draggable { touch-action: pan-x; }
 
 .hand-card-info-pop {
   position: absolute;
@@ -4652,7 +4716,7 @@ input, select, textarea { font-family: inherit; }
 .v2-timer-pill.is-urgent .v2-timer-pill-clock { color: #e94560 !important; animation: v2-timer-pulse 1s ease-in-out infinite; }
 .v2-timer-pill-moves { font-size: 10px; }
 
-.v2-footer { grid-area: footer; display: flex; align-items: stretch; border-top: 1px solid rgba(205,159,189,0.3); background: rgba(255,250,253,0.96); backdrop-filter: blur(16px); overflow: hidden; min-width: 0; max-width: 100%; }
+.v2-footer { grid-area: footer; display: flex; align-items: stretch; border-top: none; background: transparent; backdrop-filter: none; overflow: hidden; min-width: 0; max-width: 100%; }
 .v2-footer-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; background: none; border: none; border-right: 1px solid rgba(205,159,189,0.2); cursor: pointer; font-size: 10px; color: #7d5470; font-family: inherit; padding: 0 6px; font-weight: 600; transition: background 120ms; }
 .v2-footer-btn:last-child { border-right: none; }
 .v2-footer-btn:hover { background: rgba(255,126,182,0.1); }
@@ -4739,6 +4803,8 @@ input, select, textarea { font-family: inherit; }
     display: flex !important;
     flex-direction: column;
     grid-template-columns: none;
+    background: transparent;
+    backdrop-filter: none;
   }
 
   /* Moves strip: horizontal scrolling row */
@@ -5053,7 +5119,7 @@ input, select, textarea { font-family: inherit; }
   margin: 0 !important;
   height: 100% !important;
   min-height: 0 !important;
-  overflow: hidden !important;
+  overflow: visible !important;
   gap: 0 !important;
 }
 .v2-shell .arena-core {
@@ -5229,6 +5295,181 @@ input, select, textarea { font-family: inherit; }
   width: 100%;
 }
 
+/* ===== ACTION ANIMATION OVERLAY ===== */
+.action-anim-overlay {
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pulseGlow {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 40px currentColor; }
+  50% { transform: scale(1.05); box-shadow: 0 0 80px currentColor; }
+}
+
+/* Floating card animation for power card plays */
+@keyframes cardFloatIn {
+  from { opacity: 0; transform: scale(0.5) translateY(40px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes cardPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+.garden-flower-particle.is-target-flower {
+  --flower-scale: 1.5;
+  animation: flowerTargetWiggle 0.5s ease-in-out infinite;
+  filter: brightness(1.4) saturate(1.5) drop-shadow(0 0 15px rgba(255,215,0,0.7)) !important;
+  z-index: 1000 !important;
+}
+
+.garden-flower-particle.is-target-set {
+  --flower-scale: 1.15;
+  animation: setTargetShake 0.4s ease-in-out infinite;
+  filter: brightness(1.25) saturate(1.3) drop-shadow(0 0 10px rgba(255,100,100,0.5)) !important;
+}
+
+.garden-flower-particle.is-target-garden {
+  --flower-scale: 1.1;
+  animation: gardenTargetPulse 0.8s ease-in-out infinite;
+  filter: brightness(1.2) saturate(1.2) drop-shadow(0 0 8px rgba(100,150,255,0.4)) !important;
+}
+
+@keyframes flowerTargetWiggle {
+  0%, 100% { transform: rotate(var(--flower-rotation, 0deg)) scale(var(--flower-scale, var(--physics-scale, 1))) rotate(-2deg); }
+  50% { transform: rotate(var(--flower-rotation, 0deg)) scale(calc(var(--flower-scale, var(--physics-scale, 1)) * 1.03)) rotate(2deg); }
+}
+
+@keyframes setTargetShake {
+  0%, 100% { transform: rotate(var(--flower-rotation, 0deg)) scale(var(--flower-scale, var(--physics-scale, 1))) translateX(0); }
+  25% { transform: rotate(var(--flower-rotation, 0deg)) scale(var(--flower-scale, var(--physics-scale, 1))) translateX(-3px) rotate(-1deg); }
+  75% { transform: rotate(var(--flower-rotation, 0deg)) scale(var(--flower-scale, var(--physics-scale, 1))) translateX(3px) rotate(1deg); }
+}
+
+@keyframes gardenTargetPulse {
+  0%, 100% { transform: rotate(var(--flower-rotation, 0deg)) scale(var(--flower-scale, var(--physics-scale, 1))); }
+  50% { transform: rotate(var(--flower-rotation, 0deg)) scale(calc(var(--flower-scale, var(--physics-scale, 1)) * 1.05)); }
+}
+
+/* ===== HEARTHSTONE-STYLE HAND ARC ===== */
+.hs-hand-container {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 140px;
+  padding-bottom: 10px;
+  overflow-x: auto;
+  overflow-y: visible;
+  touch-action: pan-x;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.hs-hand-container::-webkit-scrollbar {
+  display: none;
+}
+
+.hs-hand-container .card-chip {
+  flex-shrink: 0;
+  margin: 0 -6px;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), 
+              margin 0.25s ease,
+              z-index 0s;
+  transform-origin: bottom center;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4));
+}
+
+/* Arc rotation based on position */
+.hs-hand-container .card-chip:nth-child(1) { transform: rotate(-18deg) translateY(8px); }
+.hs-hand-container .card-chip:nth-child(2) { transform: rotate(-14deg) translateY(4px); }
+.hs-hand-container .card-chip:nth-child(3) { transform: rotate(-10deg) translateY(2px); }
+.hs-hand-container .card-chip:nth-child(4) { transform: rotate(-6deg) translateY(0px); }
+.hs-hand-container .card-chip:nth-child(5) { transform: rotate(-2deg) translateY(0px); }
+.hs-hand-container .card-chip:nth-child(6) { transform: rotate(2deg) translateY(0px); }
+.hs-hand-container .card-chip:nth-child(7) { transform: rotate(6deg) translateY(0px); }
+.hs-hand-container .card-chip:nth-child(8) { transform: rotate(10deg) translateY(2px); }
+.hs-hand-container .card-chip:nth-child(9) { transform: rotate(14deg) translateY(4px); }
+.hs-hand-container .card-chip:nth-child(10) { transform: rotate(18deg) translateY(8px); }
+
+/* Generic fallback for 11+ cards */
+.hs-hand-container .card-chip:nth-child(n+11) {
+  transform: rotate(0deg) translateY(0px);
+  margin: 0 -6px;
+}
+
+/* Hover — lift and center with delay to prevent flicker */
+.hs-hand-container .card-chip:hover,
+.hs-hand-container .card-chip:active {
+  transform: scale(1.15) translateY(-30px) rotate(0deg) !important;
+  z-index: 100 !important;
+  margin: 0 4px;
+  filter: drop-shadow(0 12px 30px rgba(0,0,0,0.6));
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s, 
+              margin 0.3s ease 0.15s,
+              filter 0.3s ease,
+              z-index 0s;
+}
+
+/* Drag origin card */
+.hs-hand-container .card-chip.is-drag-origin {
+  opacity: 0.3;
+}
+
+/* Mobile adjustments */
+@media (max-width: 600px) {
+  .hs-hand-container {
+    height: 110px;
+    padding-bottom: 6px;
+  }
+  .hs-hand-container .card-chip {
+    margin: 0 -6px;
+    transform: scale(0.85);
+    transform-origin: bottom center;
+  }
+  .hs-hand-container .card-chip:nth-child(1) { transform: scale(0.85) rotate(-10deg) translateY(4px); }
+  .hs-hand-container .card-chip:nth-child(2) { transform: scale(0.85) rotate(-6deg) translateY(2px); }
+  .hs-hand-container .card-chip:nth-child(3) { transform: scale(0.85) rotate(-2deg) translateY(0px); }
+  .hs-hand-container .card-chip:nth-child(4) { transform: scale(0.85) rotate(2deg) translateY(0px); }
+  .hs-hand-container .card-chip:nth-child(5) { transform: scale(0.85) rotate(6deg) translateY(2px); }
+  .hs-hand-container .card-chip:nth-child(6) { transform: scale(0.85) rotate(10deg) translateY(4px); }
+  .hs-hand-container .card-chip:nth-child(7) { transform: scale(0.85) rotate(14deg) translateY(6px); }
+  .hs-hand-container .card-chip:nth-child(8) { transform: scale(0.85) rotate(18deg) translateY(8px); }
+  
+  .hs-hand-container .card-chip:hover,
+  .hs-hand-container .card-chip:active {
+    transform: scale(1.1) translateY(-20px) rotate(0deg) !important;
+    margin: 0 2px;
+    filter: drop-shadow(0 8px 20px rgba(0,0,0,0.5));
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s, 
+                margin 0.3s ease 0.15s,
+                filter 0.3s ease;
+  }
+}
+.v2-shell .player-garden {
+  width: min(var(--pg-w, 200px), 38vw) !important;
+  height: min(var(--pg-h, 150px), 26vh) !important;
+  padding: 12px !important;
+  box-sizing: border-box !important;
+}
+@media (max-width: 600px) {
+  .v2-shell .player-garden {
+    width: min(var(--pg-w, 200px), 52vw) !important;
+    height: min(var(--pg-h, 150px), 24vh) !important;
+    padding: 10px !important;
+  }
+}
+@media (min-width: 601px) and (max-width: 900px) {
+  .v2-shell .player-garden {
+    width: min(var(--pg-w, 200px), 46vw) !important;
+    height: min(var(--pg-h, 150px), 24vh) !important;
+    padding: 10px !important;
+  }
+}
+
 @media (max-width: 760px) {
   .waiting-room-shell {
     align-items: flex-start;
@@ -5283,4 +5524,65 @@ input, select, textarea { font-family: inherit; }
   .waiting-room-seat-top {
     align-items: flex-start;
   }
+}
+
+/* Card tooltip - hidden by default, shows on hover */
+.card-chip-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%) scale(0.92);
+  transform-origin: bottom center;
+  background: rgba(15, 20, 35, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 10px;
+  min-width: 140px;
+  max-width: 200px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 2000;
+  font-size: 11px;
+  color: #e0e0e0;
+  line-height: 1.35;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  white-space: normal;
+}
+
+.card-chip:hover .card-chip-tip,
+.card-chip-tip:hover {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+  transition-delay: 0.25s;
+}
+
+.card-chip-tip__title {
+  font-weight: 700;
+  color: #f0c040;
+  font-size: 12px;
+  margin-bottom: 2px;
+  text-transform: capitalize;
+}
+
+.card-chip-tip__body {
+  font-size: 10px;
+  color: #a0a0a0;
+  line-height: 1.3;
+}
+
+/* Fix mobile drag: disable browser scroll interference during play */
+.v2-hand-dock.is-play-turn .v2-hand-row {
+  touch-action: pan-x;
+}
+.v2-hand-dock.is-reorder-turn .v2-hand-row {
+  touch-action: pan-x;
+}
+
+/* Only individual draggable cards block scroll gestures */
+.v2-hand-dock.is-play-turn .v2-hand-row .card-chip.draggable {
+  touch-action: none;
+}
+.v2-hand-dock.is-reorder-turn .v2-hand-row .card-chip.draggable {
+  touch-action: none;
 }

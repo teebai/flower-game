@@ -44,12 +44,12 @@ const BROWNIAN_AMP = 0.001;
 const BROWNIAN_FREQ = 0.002;
 const ROTATION_DAMP = 0.92;
 const ROTATION_BROWNIAN = 0.008;
-const BOUNDARY_K = 0.003;
+const BOUNDARY_K = 0.015;            // 5x stronger — keep flowers inside garden
 const HOVER_SPRING_K = 0.10;
 const STOP_VELOCITY = 0.015;
 const MAX_FRAME_DT = 2.5;
-const SPAWN_PUSH_FORCE = 4.5;        // explosive push — new flowers blast neighbors away
-const SPAWN_PUSH_RADIUS = 70;        // wider radius of push effect
+const SPAWN_PUSH_FORCE = 0.15;       // barely perceptible
+const SPAWN_PUSH_RADIUS = 18;      // tiny radius
 
 // ── Breeze constants ──
 const BREEZE_AMP = 0.6;
@@ -90,10 +90,12 @@ function seededRandom(seed: string): () => number {
   };
 }
 
+// ── Garden sizing: tightly proportional to garden container ──
+// Gardens are ~160px wide × ~120px tall. Flowers must stay well inside.
 function gardenEllipse(flowerCount: number): { rx: number; ry: number; w: number; h: number } {
-  const rx = Math.min(260, 80 + flowerCount * 9);
-  const ry = Math.min(200, 60 + flowerCount * 7);
-  return { rx, ry, w: rx * 2 + 40, h: ry * 2 + 32 };
+  const rx = Math.min(55, 25 + flowerCount * 2.5);
+  const ry = Math.min(40, 18 + flowerCount * 2);
+  return { rx, ry, w: rx * 2 + 28, h: ry * 2 + 20 };
 }
 
 function flowerSize(color: FlowerColor, isDivineSet: boolean, isSolidSet: boolean): number {
@@ -166,7 +168,7 @@ export function useGardenParticles({
   // Initialize / re-initialize particles when flowers change
   useEffect(() => {
     const allFlowers = sets.flatMap(s => s.flowers.map(f => ({ ...f, setId: s.id })));
-    const currentIds = allFlowers.map(f => f.id).join(',');
+    const currentIds = allFlowers.map(f => f.id).sort().join(',');
 
     if (currentIds === prevFlowerIdsRef.current) return;
 
@@ -212,13 +214,13 @@ export function useGardenParticles({
         spawnVx = (targetX - spawnX) * 0.08;
         spawnVy = (targetY - spawnY) * 0.08;
       } else {
-        // Fallback: spawn near edge, drift inward gently
+        // Spawn near target position (not at edge) — gentle appearance
         const angle = rng() * Math.PI * 2;
-        const dist = rx * (0.5 + rng() * 0.5);
-        spawnX = Math.cos(angle) * dist;
-        spawnY = Math.sin(angle) * dist * (ry / rx);
-        spawnVx = (targetX - spawnX) * 0.012;
-        spawnVy = (targetY - spawnY) * 0.012;
+        const dist = rx * (0.05 + rng() * 0.12); // close to center
+        spawnX = targetX + Math.cos(angle) * dist;
+        spawnY = targetY + Math.sin(angle) * dist * (ry / rx);
+        spawnVx = (targetX - spawnX) * 0.03; // gentle pull to center
+        spawnVy = (targetY - spawnY) * 0.03;
       }
 
       return {
@@ -236,7 +238,7 @@ export function useGardenParticles({
         hoverScale: 1.0,
         brightness: BASE_BRIGHTNESS,
         saturate: BASE_SATURATE,
-        opacity: 0,
+        opacity: 0.6,
         isDivine: set?.isDivine ?? false,
         isSolid: set?.isSolid ?? false,
       };
@@ -264,7 +266,7 @@ export function useGardenParticles({
     for (const p of particles) {
       if (changedSetIdsRef.current.includes(p.setId) && existingById.has(p.id)) {
         const dist = Math.hypot(p.x, p.y) || 1;
-        const push = 1.2;
+        const push = 0.15;
         p.vx += (p.x / dist) * push;
         p.vy += (p.y / dist) * push;
       }
@@ -385,6 +387,22 @@ export function useGardenParticles({
         p.x += p.vx * dt;
         p.y += p.vy * dt;
 
+        // ── HARD BOUNDARY CLAMP ── snap flowers inside garden ellipse, kill velocity
+        const boundaryPad = 4;
+        const maxRx = rx - boundaryPad;
+        const maxRy = ry - boundaryPad;
+        if (maxRx > 0 && maxRy > 0) {
+          const ellipseDist = (p.x / maxRx) ** 2 + (p.y / maxRy) ** 2;
+          if (ellipseDist > 1) {
+            const angle = Math.atan2(p.y / maxRy, p.x / maxRx);
+            p.x = Math.cos(angle) * maxRx * 0.95;
+            p.y = Math.sin(angle) * maxRy * 0.95;
+            p.vx = 0;
+            p.vy = 0;
+            p.rotVel = 0;
+          }
+        }
+
         // ── Gentle rotation sway (wind blowing through flowers) ──
         p.rotVel *= Math.pow(ROTATION_DAMP, dt);
         const breeze =
@@ -438,7 +456,7 @@ export function useGardenParticles({
         p.rotation += jitterRot * dt;
 
         if (p.opacity < 1) {
-          p.opacity = Math.min(1, p.opacity + 0.025 * dt);
+          p.opacity = Math.min(1, p.opacity + 0.08 * dt); // faster fade-in
         }
       }
 

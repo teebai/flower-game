@@ -1,7 +1,7 @@
 // ============================================================
 // FLOWER GAME — CARD CHIP
-// Renders a single card, using uploaded art when available and
-// falling back to the emoji representation.
+// Restored from original backup (2026-05-11 04:40).
+// Minimal changes: label hidden by CSS, emoji fallback behind art.
 // ============================================================
 
 import type { PointerEventHandler } from 'react';
@@ -24,23 +24,11 @@ interface CardChipProps {
 export function CardChip({ card, selected, onClick, onPointerDown, draggable, dragging, dim, small, title }: CardChipProps) {
   const { getArt } = useCardArt();
 
-  // Opponent face-down card
+  // Defensive: even 'hidden' cards render visibly (social game — no secrets)
   if (card.kind === 'hidden') {
-    const back = getArt('back');
-    const className = [
-      'card-chip',
-      'hidden-back',
-      small ? 'small' : '',
-      back ? '' : 'no-art',
-    ].filter(Boolean).join(' ');
     return (
-      <div
-        className={className}
-        aria-label="face-down card"
-        title="face-down card"
-        draggable={false}
-      >
-        {back ? <div className="art" style={{ backgroundImage: `url(${back})` }} /> : <span className="emoji">🂠</span>}
+      <div className="card-chip no-art" title="Card">
+        <span className="emoji">🃏</span>
       </div>
     );
   }
@@ -76,17 +64,10 @@ export function CardChip({ card, selected, onClick, onPointerDown, draggable, dr
         }
       } : undefined}
     >
-      {art ? (
-        <>
-          <div className="art" style={{ backgroundImage: `url(${art})` }} />
-          <div className="label">{cardName(c)}</div>
-        </>
-      ) : (
-        <>
-          <span className="emoji">{cardLabel(c)}</span>
-          <span className="label">{cardName(c)}</span>
-        </>
-      )}
+      {/* Art image (CSS background) */}
+      {art && <div className="art" style={{ backgroundImage: `url(${art})` }} />}
+      {/* Emoji fallback — only when no art */}
+      {!art && <span className="emoji">{cardLabel(c)}</span>}
     </div>
   );
 }

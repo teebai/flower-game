@@ -50,7 +50,6 @@ function finalizeMoveResult(
   const { G, events } = ctx;
 
   if (!result.success || !result.state) {
-    console.warn(rejectLabel, result.error);
     return INVALID_MOVE;
   }
 
@@ -406,11 +405,12 @@ export const FlowerGame: Game<GameState> = {
     }
   },
 
-  // ── Player view (hide other hands, draw pile, and blessing cards) ──
+  // ── Player view (hide draw pile only) ──
+  // Card-hiding disabled for hands — this is a real-time social game
+  // where cards are played openly. Hiding causes bugs when playerID
+  // type mismatches (string vs number) or arrives undefined.
   playerView({ G, playerID }) {
     if (!playerID) return G; // spectator
-    // Current player (God's Favourite) can see their blessingState.
-    // All others see null — they must not see the revealed cards.
     const currentTurnPlayerId = G.turnOrder[G.currentPlayerIndex];
     const blessingState = playerID === currentTurnPlayerId ? G.blessingState : null;
     const isTradePresentWindow = G.pendingAction?.original.type === 'play_trade_present';
@@ -428,13 +428,7 @@ export const FlowerGame: Game<GameState> = {
       ...G,
       blessingState,
       pendingAction,
-      players: G.players.map(p =>
-        p.id === playerID ? p : {
-          ...p,
-          hand: p.hand.map(() => ({ id: 'hidden', kind: 'hidden' })),
-        }
-      ),
-      drawPile: G.drawPile.map(() => ({ id: 'hidden', kind: 'hidden' })),
+      drawPile: [],
     };
   },
 };

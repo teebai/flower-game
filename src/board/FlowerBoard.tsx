@@ -2,6 +2,7 @@
 // FLOWER GAME — MAIN GAME BOARD (v2)
 // ============================================================
 
+import { ErrorBoundary } from '../ErrorBoundary';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardProps } from 'boardgame.io/react';
 import type { GameState, Card, FlowerCard, GardenSet, PendingAction, Player, FlowerColor } from '../types/gameTypes';
@@ -21,6 +22,9 @@ import { MatchContext } from '../matchContext';
 import { GardenFlowerField } from './GardenFlowerField';
 import { GrassField } from './GrassField';
 import { WindPathCanvas } from './WindPathCanvas';
+import { ActionAnimationOverlay } from './ActionAnimationOverlay';
+import type { PowerCardName } from '../types';
+import { getActionAnimation } from '../cards/actionAnimations';
 
 const MOVE_LABELS: Record<string, string> = {
   plantOwn: '🌱 Plant in your garden',
@@ -771,6 +775,9 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const [pointerDragActive, setPointerDragActive] = useState(false);
   const [armedCardId, setArmedCardId] = useState<string | null>(null);
   const [arenaLogToast, setArenaLogToast] = useState<{ key: string; text: string } | null>(null);
+  const [activeAnimation, setActiveAnimation] = useState<{ name: PowerCardName; phase: 'cast' | 'success' | 'win'; targetPlayerId?: string } | null>(null);
+
+
   const [quickChatOpen, setQuickChatOpen] = useState(false);
   const [localLogEntries, setLocalLogEntries] = useState<LocalLogEntry[]>([]);
 
@@ -1207,6 +1214,23 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
 
   // ── Garden hover level (for 3-level hover: flower → set → player) ──
   const activeGardenCardId = draggingCardId ?? armedCardId;
+
+  // ── Hover targeting mode based on dragged card type ─────────
+  const hoverMode = (() => {
+    if (!activeGardenCardId || !me) return 'none';
+    const card = me.hand.find(c => c.id === activeGardenCardId);
+    if (!card) return 'none';
+    if (card.kind === 'flower') return 'set'; // Planting targets a set
+    const name = card.name;
+    // Single-target cards (individual flower)
+    if (['wind','bug'].includes(name)) return 'flower';
+    // Set-target cards
+    if (['natural_disaster','double_happiness','bee'].includes(name)) return 'set';
+    // Player/garden-target cards
+    if (['trade_fate','trade_present'].includes(name)) return 'garden';
+    // Global cards (no targeting hover needed)
+    return 'none';
+  })();
   const hoverLevel = useMemo(() => {
     if (!activeGardenCardId) return null;
     const activeCard = me?.hand.find((c) => c.id === activeGardenCardId);
@@ -1280,13 +1304,28 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     ?? nameOf(G.players.find(player => player.id === G.winner))
     ?? 'Unknown';
   const myHandRaw = me?.hand ?? [];
+
+  // DEBUG: log hidden cards in hand
+  useEffect(() => {
+    const hiddenCards = myHandRaw.filter((c: any) => c.kind === 'hidden');
+    if (hiddenCards.length > 0) {
+    }
+  }, [myHandRaw, playerID, me?.id]);
+
   const myHand = useMemo(() => {
     if (myHandRaw.length === 0) return [];
-    const byId = new Map(myHandRaw.map(card => [card.id, card]));
+    // Defensive: filter out any corrupted/hidden cards
+    const validCards = myHandRaw.filter((c: any) => {
+      const isValid = c && (c.kind === 'flower' || c.kind === 'power');
+      if (!isValid) {
+      }
+      return isValid;
+    });
+    const byId = new Map(validCards.map(card => [card.id, card]));
     const ordered = handOrderIds
       .map(id => byId.get(id))
       .filter((card): card is Card => !!card);
-    const missing = myHandRaw.filter(card => !handOrderIds.includes(card.id));
+    const missing = validCards.filter(card => !handOrderIds.includes(card.id));
     return [...ordered, ...missing];
   }, [handOrderIds, myHandRaw]);
   const selectedPrimaryWindCard = moveType === 'playWindSingle'
@@ -2195,9 +2234,8 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     previousSeatPresenceRef.current = currentSeatPresence;
   }, [matchCtx?.seatPresence]);
 
-  // ── Log unread tracking ────────────────────────────────────
+  // ── Log unread tracking (global animation detection disabled for debugging) ──
   const prevLogLenRef = useRef(G.log.length);
-  const actionSheetRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (G.log.length > prevLogLenRef.current && !logOpen) {
       setLogUnread(u => u + (G.log.length - prevLogLenRef.current));
@@ -2270,7 +2308,28 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     }, 1500);
   }
 
-  // ── Cards filtered by move type ──────────────────────────────
+  /** Trigger a power-card animation overlay before executing the move */
+  function runMoveWithAnim(fn: () => void, anim: { name: PowerCardName; phase: 'cast' | 'success' | 'win'; targetPlayerId?: string }) {
+    // TEMP: skip animation overlay to debug blank screen
+    runMove(fn);
+  }
+
+  // ── Direct play (no popup) for self-targeting cards ─────────
+  function playDirect(type: string) {
+    const cards = relevantCards(type);
+    if (cards.length === 0) { setError('No valid card'); return; }
+    if (cards.length === 1) {
+      const c = cards[0];
+      if (type === 'letGo') runMoveWithAnim(() => m.letGo(c.id), { name: 'let_go', phase: 'cast' });
+      else if (type === 'playSeason') runMoveWithAnim(() => m.playSeason(c.id), { name: c.name as PowerCardName, phase: 'cast' });
+      else if (type === 'playEclipse') runMoveWithAnim(() => m.playEclipse(c.id), { name: 'eclipse', phase: 'cast' });
+      else if (type === 'playGreatReset') runMoveWithAnim(() => m.playGreatReset(c.id), { name: 'great_reset', phase: 'cast' });
+      return;
+    }
+    // Multiple cards — fall back to pick-card step
+    setMoveType(type);
+    setStep('pick-card');
+  }
   function relevantCards(type: string): Card[] {
     if (!me) return [];
     const hand = myHand;
@@ -2430,19 +2489,19 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         runMove(() => m.plantOpponent(c1, targetPlayer, resolvedTargetSet, chosenColor || undefined));
         break;
       case 'playWindSingle':
-        runMove(() => m.playWindSingle(c1, targetPlayer, targetSet));
+        runMoveWithAnim(() => m.playWindSingle(c1, targetPlayer, targetSet), { name: 'wind', phase: 'cast', targetPlayerId: targetPlayer });
         break;
       case 'playWindDouble':
         if (moveType === 'playWindSingle') {
           if (!autoDoubleWindCard) { setError('You need 2 Wind cards for the double Wind move.'); return; }
-          runMove(() => m.playWindDouble(c1, autoDoubleWindCard.id, targetPlayer, targetSet, windExtraTargetSets));
+          runMoveWithAnim(() => m.playWindDouble(c1, autoDoubleWindCard.id, targetPlayer, targetSet, windExtraTargetSets), { name: 'wind', phase: 'cast', targetPlayerId: targetPlayer });
           break;
         }
         if (!c2) { setError('Select 2 Wind cards'); return; }
-        runMove(() => m.playWindDouble(c1, c2, targetPlayer, targetSet, windExtraTargetSets));
+        runMoveWithAnim(() => m.playWindDouble(c1, c2, targetPlayer, targetSet, windExtraTargetSets), { name: 'wind', phase: 'cast', targetPlayerId: targetPlayer });
         break;
       case 'playBug':
-        runMove(() => m.playBug(c1, targetPlayer, targetSet));
+        runMoveWithAnim(() => m.playBug(c1, targetPlayer, targetSet), { name: 'bug', phase: 'cast', targetPlayerId: targetPlayer });
         break;
       case 'playBee':
         if (triggerLocalPlantSfx) {
@@ -2450,45 +2509,45 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           playMoveSfx();
           pendingLocalPlantSoundLogSkipsRef.current += 1;
         }
-        runMove(() => m.playBee(c1, discardChoice, targetPlayer || playerID!, resolvedTargetSet, chosenColor || undefined));
+        runMoveWithAnim(() => m.playBee(c1, discardChoice, targetPlayer || playerID!, resolvedTargetSet, chosenColor || undefined), { name: 'bee', phase: 'cast', targetPlayerId: targetPlayer || playerID! });
         break;
       case 'doubleHappinessTake': {
         const dhCard = pickedHandCards.find(card => isPower(card, 'double_happiness'));
         if (!dhCard) { setError('Select the Double Happiness card'); return; }
-        runMove(() => m.doubleHappinessTake(dhCard.id, targetPlayer));
+        runMoveWithAnim(() => m.doubleHappinessTake(dhCard.id, targetPlayer), { name: 'double_happiness', phase: 'cast', targetPlayerId: targetPlayer });
         break;
       }
       case 'doubleHappinessGive': {
         const dhCard = pickedHandCards[0];
         const giveIds = pickedHandCards.slice(1).map(card => card.id);
         if (!dhCard || !isPower(dhCard, 'double_happiness') || giveIds.length !== 2) { setError('Select Double Happiness + 2 cards to give'); return; }
-        runMove(() => m.doubleHappinessGive(dhCard.id, targetPlayer, giveIds[0], giveIds[1]));
+        runMoveWithAnim(() => m.doubleHappinessGive(dhCard.id, targetPlayer, giveIds[0], giveIds[1]), { name: 'double_happiness', phase: 'cast', targetPlayerId: targetPlayer });
         break;
       }
       case 'tradePresent': {
         const tradeCard = selectedTradePresentCard;
         const offeredCard = selectedTradePresentOfferCard;
         if (!tradeCard || !offeredCard) { setError('Select Trade Present + 1 card to offer'); return; }
-        runMove(() => m.tradePresent(tradeCard.id, targetPlayer, offeredCard.id));
+        runMoveWithAnim(() => m.tradePresent(tradeCard.id, targetPlayer, offeredCard.id), { name: 'trade_present', phase: 'cast', targetPlayerId: targetPlayer });
         break;
       }
       case 'tradeFate':
-        runMove(() => m.tradeFate(c1, targetPlayer));
+        runMoveWithAnim(() => m.tradeFate(c1, targetPlayer), { name: 'trade_fate', phase: 'cast', targetPlayerId: targetPlayer });
         break;
       case 'letGo':
-        runMove(() => m.letGo(c1));
+        runMoveWithAnim(() => m.letGo(c1), { name: 'let_go', phase: 'cast' });
         break;
       case 'playSeason':
-        runMove(() => m.playSeason(c1));
+        runMoveWithAnim(() => m.playSeason(c1), { name: (selectedCards[0]?.name || 'spring') as PowerCardName, phase: 'cast' });
         break;
       case 'naturalDisaster':
-        runMove(() => m.naturalDisaster(c1, targetPlayer, targetSet));
+        runMoveWithAnim(() => m.naturalDisaster(c1, targetPlayer, targetSet), { name: 'natural_disaster', phase: 'cast', targetPlayerId: targetPlayer });
         break;
       case 'playEclipse':
-        runMove(() => m.playEclipse(c1));
+        runMoveWithAnim(() => m.playEclipse(c1), { name: 'eclipse', phase: 'cast' });
         break;
       case 'playGreatReset':
-        runMove(() => m.playGreatReset(c1));
+        runMoveWithAnim(() => m.playGreatReset(c1), { name: 'great_reset', phase: 'cast' });
         break;
       case 'discardFlower':
         runMove(() => m.discardFlower(c1));
@@ -2825,18 +2884,14 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       const has = (name: string) => hand.some(c => isPower(c, name));
       const hasFlower = hand.some(isFlower);
       return (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ color: '#aaa', fontSize: 13, marginBottom: 10 }}>
+        <div style={{ marginTop: 4 }}>
+          <div style={{ color: '#aaa', fontSize: 13, marginBottom: 6 }}>
             Moves left: <b style={{ color: '#4ecca3' }}>{G.movesRemaining}</b>
             {G.season && <span style={{ marginLeft: 12, color: '#ffcc80' }}>
               Season: {G.season}
             </span>}
           </div>
-          <div style={{ background: '#0f3460', borderRadius: 10, padding: '10px 12px', marginBottom: 12, color: '#b8c1ec', fontSize: 13 }}>
-            Tap a move to see what it does, what card it needs, and what you still need to choose before confirming.
-            <div style={{ marginTop: 6, color: '#d7e3ff' }}>Tip: drag a flower card straight onto a garden set to start planting instantly.</div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '4px 0' }}>
             {hasFlower && <button style={btn()} onClick={() => { setMoveType('plantOwn'); setStep('pick-card'); }}>🌱 Plant (own)</button>}
             {hasFlower && opponents.length > 0 && <button style={btn()} onClick={() => { setMoveType('plantOpponent'); setStep('pick-card'); }}>🌿 Plant (opponent)</button>}
             {has('wind') && <button style={btn()} onClick={() => { setMoveType('playWindSingle'); setStep('pick-card'); }}>💨 Wind ×1</button>}
@@ -2845,13 +2900,13 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             {has('double_happiness') && <button style={btn()} onClick={() => { setMoveType('doubleHappiness'); setStep('pick-card'); }}>🎉 Double Happiness</button>}
             {has('trade_present') && <button style={btn()} onClick={() => beginTradePresentFlow()}>🎁 Trade Present</button>}
             {has('trade_fate') && <button style={btn()} onClick={() => { setMoveType('tradeFate'); setStep('pick-card'); }}>🔀 Trade Fate</button>}
-            {has('let_go') && <button style={btn()} onClick={() => { setMoveType('letGo'); setStep('pick-card'); }}>✋ Let Go</button>}
+            {has('let_go') && <button style={btn()} onClick={() => playDirect('letGo')}>✋ Let Go</button>}
             {['spring','summer','autumn','winter'].some(s => has(s)) && (
-              <button style={btn()} onClick={() => { setMoveType('playSeason'); setStep('pick-card'); }}>🌸 Season</button>
+              <button style={btn()} onClick={() => playDirect('playSeason')}>🌸 Season</button>
             )}
             {has('natural_disaster') && hasNaturalDisasterTarget && <button style={btn()} onClick={() => { setMoveType('naturalDisaster'); setStep('pick-card'); }}>🌪️ Nat. Disaster</button>}
-            {has('eclipse') && <button style={btn()} onClick={() => { setMoveType('playEclipse'); setStep('pick-card'); }}>🌑 Eclipse</button>}
-            {has('great_reset') && <button style={btn()} onClick={() => { setMoveType('playGreatReset'); setStep('pick-card'); }}>♻️ Great Reset</button>}
+            {has('eclipse') && <button style={btn()} onClick={() => playDirect('playEclipse')}>🌑 Eclipse</button>}
+            {has('great_reset') && <button style={btn()} onClick={() => playDirect('playGreatReset')}>♻️ Great Reset</button>}
             {G.season === 'autumn' && hasFlower && (
               <button style={btn('#8b4513')} onClick={() => { setMoveType('discardFlower'); setStep('pick-card'); }}>🍂 Discard Flower</button>
             )}
@@ -3847,6 +3902,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   }
 
   return (
+    <ErrorBoundary>
     <div className={shellClass} style={theme.pageStyle}>
       <svg className="garden-goo-defs" aria-hidden="true" focusable="false">
         <defs>
@@ -4088,9 +4144,9 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         {/* Global grass background — world space with camera tracking */}
         <GrassField
           season={G.season ?? 'normal'}
-          scrollX={0}
-          scrollY={0}
-          zoom={1}
+          scrollX={-arenaPan.x}
+          scrollY={-arenaPan.y}
+          zoom={arenaZoom}
           playerPositions={G.players.map(p => ({ x: 0, y: 0 }))}
           dragPos={dragPreview ? { x: dragPreview.x + dragPreview.width / 2, y: dragPreview.y + dragPreview.height / 2 } : null}
         />
@@ -4205,6 +4261,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                             hoveredSetId={hoveredSetId}
                             hoveredPlayerId={hoveredPlayerId}
                             hoverLevel={hoverLevel}
+                            hoverMode={hoverMode}
                             isDragActive={activeGardenCardId !== null && canDropTarget}
                             lastDropRef={lastDropRef}
                             onSetClick={(setId) => {
@@ -4341,7 +4398,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
               <div className="hand-card-info-pop__body">{cardDetail(showHandInfoCard)}</div>
             </div>
           )}
-          <div ref={handRowRef} className="hand-dock player-hand-row v2-hand-row">
+          <div ref={handRowRef} className="hs-hand-container">
             {myHand.length === 0 ? (
               <span style={{ color: theme.muted, fontSize: 12 }}>Empty</span>
             ) : myHand.map((c, i) => {
@@ -4369,26 +4426,11 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
 
       </div>
 
-      {/* ── FOOTER ── */}
-      <footer className="v2-footer" style={{ background: theme.panel, borderTop: `1px solid ${theme.border}` }}>
-        <button className="v2-footer-btn" style={{ color: theme.muted }} onClick={() => setModalOpen('menu')}>
-          <span>☰</span><span className="v2-footer-label">Menu</span>
-        </button>
-        <button className="v2-footer-btn" style={{ color: theme.muted }} onClick={() => setModalOpen('rules')}>
-          <span>📖</span><span className="v2-footer-label">Rules</span>
-        </button>
-        {matchResult && (
-          <button className="v2-footer-btn" style={{ color: theme.muted }} onClick={() => setModalOpen('results')}>
-            <span>🏁</span><span className="v2-footer-label">Results</span>
-          </button>
-        )}
-        <a href="https://flowerbug.a133.mov" target="_blank" rel="noreferrer" className="v2-footer-btn" style={{ color: theme.muted }}>
-          <span>🐛</span><span className="v2-footer-label">Report Bug</span>
-        </a>
-        <button className="v2-footer-btn" style={{ color: '#e94560' }} onClick={() => matchCtx?.onLeave()}>
-          <span>✕</span><span className="v2-footer-label">Exit</span>
-        </button>
-      </footer>
+      {/* ── ACTION ANIMATION OVERLAY ── */}
+      <ActionAnimationOverlay
+        active={activeAnimation}
+        onComplete={() => setActiveAnimation(null)}
+      />
 
       {/* ── MODALS ── */}
       {modalOpen && (
@@ -4609,5 +4651,6 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         onComplete={(id) => setWindFlights(prev => prev.filter(f => f.id !== id))}
       />
     </div>
+    </ErrorBoundary>
   );
 }

@@ -7,13 +7,17 @@ import { AuthProvider } from './auth/AuthProvider';
 import { CardArtProvider } from './cards/cardArt';
 import './styles.css';
 
+import AssetPreloader from './components/AssetPreloader';
+
 const root = document.getElementById('root')!;
 createRoot(root).render(
   <StrictMode>
-    <AuthProvider>
-      <CardArtProvider>
-        <App />
-      </CardArtProvider>
-    </AuthProvider>
+    <AssetPreloader onReady={() => {}}>
+      <AuthProvider>
+        <CardArtProvider>
+          <App />
+        </CardArtProvider>
+      </AuthProvider>
+    </AssetPreloader>
   </StrictMode>
 );

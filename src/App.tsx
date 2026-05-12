@@ -12,53 +12,20 @@ import { FlowerBoard } from './board/FlowerBoard';
 import { Lobby } from './lobby/Lobby';
 import { MatchContext, type MatchSeatPresence } from './matchContext';
 
-const DEFAULT_SERVER = 'http://localhost:8000';
+const DEFAULT_SERVER = (() => {
+  // Use current hostname for server (works on local WiFi)
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return 'http://localhost:8000';
+  }
+  return `http://${host}:8000`;
+})();
 const SERVER = import.meta.env.VITE_GAME_SERVER_URL || DEFAULT_SERVER;
 
-// Client-side game definition.
-// All real logic runs server-side; these are stubs.
-const noop = () => {};
-const FlowerGameClient = {
-  name: 'flower-game',
-  moves: {
-    toggleReady:           noop,
-    startGame:             noop,
-    blessingFlip:         noop,
-    blessingChoose:       noop,
-    pass:                 noop,
-    plantOwn:             noop,
-    plantOpponent:        noop,
-    playWindSingle:       noop,
-    playWindDouble:       noop,
-    playBug:              noop,
-    playBee:              noop,
-    doubleHappinessTake:  noop,
-    doubleHappinessGive:  noop,
-    tradePresent:         noop,
-    tradeFate:            noop,
-    letGo:                noop,
-    playSeason:           noop,
-    naturalDisaster:      noop,
-    playEclipse:          noop,
-    playGreatReset:       noop,
-    discardFlower:        noop,
-  },
-  turn: {
-    stages: {
-      counterStage: {
-        moves: {
-          counterWind:         noop,
-          counterDivine:       noop,
-          allowAction:         noop,
-          selectResponseCards: noop,
-        },
-      },
-    },
-  },
-};
+import { FlowerGame } from '../game/FlowerGame';
 
 const BgioClient = Client({
-  game:         FlowerGameClient as Parameters<typeof Client>[0]['game'],
+  game:         FlowerGame as Parameters<typeof Client>[0]['game'],
   board:        FlowerBoard,
   multiplayer:  SocketIO({ server: SERVER }),
   debug:        false,

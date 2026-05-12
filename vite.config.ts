@@ -7,17 +7,19 @@ export default defineConfig({
     port: 3000,
     allowedHosts: true,
     proxy: {
-      // HTTP API calls (create match, join match)
       '/games': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-      // WebSocket (live game state sync)
       '/socket.io': {
         target: 'http://localhost:8000',
         ws: true,
         changeOrigin: true,
       },
     },
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
   },
 });

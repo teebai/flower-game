@@ -1,5 +1,5 @@
-import React, { useRef, useCallback } from 'react';
-import { useGardenParticles } from '../hooks/useGardenParticles';
+import React, { useRef, useCallback, useState, useEffect } from 'react';
+import { useMatterGardens } from '../hooks/useMatterGardens';
 import type { GardenSet, FlowerColor } from '../types/gameTypes';
 import { flowerArt } from '../utils/flowerArt';
 
@@ -15,6 +15,7 @@ export interface GardenFlowerFieldProps {
   hoveredSetId: string | null;
   hoveredPlayerId: string | null;
   hoverLevel: 'flower' | 'set' | 'player' | null;
+  hoverMode: 'flower' | 'set' | 'garden' | 'none';
   isDragActive: boolean;
   onSetClick?: (setId: string) => void;
   onSetHover?: (setId: string | null) => void;
@@ -32,6 +33,7 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
   hoveredSetId,
   hoveredPlayerId,
   hoverLevel,
+  hoverMode,
   isDragActive,
   onSetClick,
   onSetHover,
@@ -43,18 +45,54 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
   lastDropRef,
 }: GardenFlowerFieldProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({ width: 160, height: 120 });
 
-  const { particles, setCenters, containerW, containerH } = useGardenParticles({
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setContainerSize({ width: Math.max(rect.width, 100), height: Math.max(rect.height, 80) });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const [hoveredFlowerId, setHoveredFlowerId] = useState<string | null>(null);
+  const [hoveredFlowerColor, setHoveredFlowerColor] = useState<string | null>(null);
+
+  const { particles, setCenters, containerW, containerH } = useMatterGardens({
     sets,
     playerId,
-    hoveredFlowerId: null,
+    hoveredFlowerId: hoverMode === 'flower' ? hoveredFlowerId : null,
     hoveredSetId,
     hoveredPlayerId,
     hoverLevel,
     isDragActive,
+    containerWidth: containerSize.width,
+    containerHeight: containerSize.height,
     changedSetIds,
-    lastDropRef,
   });
+
+  // Determine which flowers should react based on hoverMode
+  function isTargetFlower(p: typeof particles[0]): boolean {
+    if (!isDragActive || hoverMode === 'none') return false;
+    if (hoverMode === 'flower') {
+      // Only the specific hovered flower
+      return hoveredFlowerId === p.id;
+    }
+    if (hoverMode === 'set') {
+      // All flowers in the hovered set
+      return hoveredSetId === p.setId;
+    }
+    if (hoverMode === 'garden') {
+      // All flowers in this garden
+      return hoveredPlayerId === playerId;
+    }
+    return false;
+  }
 
   // Power label helper — only 👑 and ✦, complete sets use glow instead
   function powerLabel(set: GardenSet): string {
@@ -94,6 +132,8 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
           const isAttacked = attackedSetId === p.setId;
           const isCompleteSet = completeSetIds.has(p.setId);
 
+          const isTarget = isTargetFlower(p);
+
           return (
             <img
               key={p.id}
@@ -104,6 +144,9 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
                 isHighlighted ? 'is-highlighted' : '',
                 isAttacked ? 'is-attacked' : '',
                 isCompleteSet ? 'is-complete-set' : '',
+                isTarget ? 'is-target-flower' : '',
+                (hoverMode === 'set' && hoveredSetId === p.setId) ? 'is-target-set' : '',
+                (hoverMode === 'garden' && hoveredPlayerId === playerId) ? 'is-target-garden' : '',
               ].filter(Boolean).join(' ')}
               style={{
                 position: 'absolute',
@@ -111,7 +154,9 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
                 top: `calc(50% + ${p.y.toFixed(1)}px - ${p.size / 2}px)`,
                 width: p.size,
                 height: p.size,
-                transform: `rotate(${p.rotation.toFixed(1)}deg) scale(${p.hoverScale.toFixed(3)})`,
+                '--flower-rotation': `${p.rotation.toFixed(1)}deg`,
+                '--physics-scale': p.hoverScale.toFixed(3),
+                transform: 'rotate(var(--flower-rotation)) scale(var(--physics-scale))',
                 filter: `brightness(${p.brightness.toFixed(2)}) saturate(${p.saturate.toFixed(2)})${isCompleteSet ? ' drop-shadow(0 0 8px rgba(78,204,163,0.6))' : ''}`,
                 opacity: p.opacity,
                 zIndex: Math.floor(p.size),
@@ -120,10 +165,14 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
               }}
               onPointerEnter={(e) => {
                 e.stopPropagation();
+                setHoveredFlowerId(p.id);
+                setHoveredFlowerColor(p.color);
                 onSetHover?.(p.setId);
               }}
               onPointerLeave={(e) => {
                 e.stopPropagation();
+                setHoveredFlowerId(null);
+                setHoveredFlowerColor(null);
                 onSetHover?.(null);
               }}
               onClick={(e) => {
