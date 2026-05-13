@@ -3677,7 +3677,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const iAmRoomOwner = !!playerID && G.ownerPlayerId === playerID;
   const roomOwnerName = nameOf(G.players.find(player => player.id === G.ownerPlayerId) ?? null) || 'Room owner';
   const showActionOverlay =
-    (myTurn && dragState.mode !== 'idle' && G.phase === 'action') ||
+    (myTurn && !['idle', 'dragging', 'hovering'].includes(dragState.mode) && G.phase === 'action') ||
     (myTurn && G.phase === 'blessing') ||
     (isCounter && amTarget && inStage);
   const draggedHandCard = dragPreview ? myHand.find(card => card.id === dragPreview.cardId) ?? null : null;
