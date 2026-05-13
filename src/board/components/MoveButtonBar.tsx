@@ -64,7 +64,7 @@ export const MoveButtonBar = React.memo(function MoveButtonBar({
           {has('eclipse') && <button className="v2-move-btn" title="Eclipse" onClick={onEclipse}>🌑</button>}
           {has('great_reset') && <button className="v2-move-btn" title="Great Reset" onClick={onGreatReset}>♻️</button>}
           {G.season === 'autumn' && hasFlower && <button className="v2-move-btn" title="Discard Flower" onClick={onDiscardFlower}>🍂</button>}
-          <button className="v2-move-btn" style={{ opacity: 0.7 }} title="Pass turn" onClick={onPass}>⏩</button>
+          <button className="v2-move-btn v2-move-btn--pass" title="End turn" onClick={onPass}>⏭ End</button>
         </div>
       </>
     );

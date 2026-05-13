@@ -2008,8 +2008,10 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
               : '';
           switch (moveType) {
             case 'plantOwn':
+              runMove(() => m.plantOwn(card.id, resolvedTargetSet));
+              break;
             case 'plantOpponent':
-              runMove(() => m.plantFlower(card.id, dropTarget.playerId, resolvedTargetSet));
+              runMove(() => m.plantOpponent(card.id, dropTarget.playerId, resolvedTargetSet));
               break;
             case 'playSeason': {
               const seasonName = (!isFlower(card) && card.kind === 'power') ? card.name : 'spring';
@@ -2883,6 +2885,16 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
 
     if (G.phase !== 'action') return null;
 
+    const endTurnBtn = (
+      <button
+        className="v2-end-turn-btn"
+        onClick={() => { resetAll(); runMove(() => m.pass()); }}
+        title="End your turn"
+      >
+        ⏭ End Turn
+      </button>
+    );
+
     if (dragState.mode === 'idle') {
       const hand = me?.hand ?? [];
       const has = (name: string) => hand.some(c => isPower(c, name));
@@ -2935,6 +2947,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         <div style={{ background: '#16213e', borderRadius: 12, padding: 16, marginTop: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
             <span style={{ color: '#4ecca3', fontWeight: 700 }}>{moveLabel(moveType)}</span>
+            {endTurnBtn}
             <button style={btn('#333')} onClick={resetAll}>✕ Cancel</button>
           </div>
           <div style={{ background: '#0f3460', borderRadius: 10, padding: 12, marginBottom: 12 }}>
@@ -3128,6 +3141,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         <div style={{ background: '#16213e', borderRadius: 12, padding: 16, marginTop: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
             <span style={{ color: '#4ecca3', fontWeight: 700 }}>Select Target</span>
+            {endTurnBtn}
             <button
               style={btn('#333')}
               onClick={() => moveType === 'tradePresent' ? resetAll() : setDragState(prev => ({ ...prev, mode: 'picking-card' }) as DragState)}
@@ -3490,6 +3504,10 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         : [];
       return (
         <div style={{ background: '#16213e', borderRadius: 12, padding: 16, marginTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+            {endTurnBtn}
+            <button style={btn('#333')} onClick={resetAll}>✕ Cancel</button>
+          </div>
           {moveType === 'tradePresent' && selectedTradePresentOfferCard && (
             <div style={{ background: '#1a1a2e', borderRadius: 10, padding: 12, marginBottom: 10 }}>
               <p style={{ fontSize: 13, color: '#ccc', margin: '0 0 6px 0' }}>

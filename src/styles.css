@@ -4941,6 +4941,10 @@ input, select, textarea { font-family: inherit; }
   position: absolute; inset: 0; z-index: 50;
   display: flex; align-items: flex-end; padding: 8px;
   background: rgba(240,207,225,0.7); backdrop-filter: blur(8px);
+  pointer-events: none; /* Let touches pass through to garden */
+}
+.v2-action-overlay > * {
+  pointer-events: auto; /* Only sheet captures events */
 }
 .v2-action-sheet {
   width: 100%; max-height: calc(100% - 8px); overflow-y: auto;
@@ -4960,6 +4964,10 @@ input, select, textarea { font-family: inherit; }
 .v2-move-btn { background: rgba(255,255,255,0.72); border: 1px solid rgba(205,159,189,0.36); border-radius: 8px; padding: 3px 6px; font-size: 13px; cursor: pointer; font-family: inherit; min-height: 26px; line-height: 1; white-space: nowrap; color: #5b2944; transition: background 120ms; }
 .v2-move-btn:hover { background: rgba(255,126,182,0.18); }
 .v2-move-btn.pass-btn { font-size: 10px; padding: 3px 8px; }
+.v2-move-btn--pass { background: rgba(233, 69, 96, 0.15) !important; border-color: rgba(233, 69, 96, 0.4) !important; color: #9e2a3b !important; font-weight: 700; }
+.v2-move-btn--pass:hover { background: rgba(233, 69, 96, 0.28) !important; }
+.v2-end-turn-btn { background: rgba(233, 69, 96, 0.15); border: 1px solid rgba(233, 69, 96, 0.4); border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit; color: #9e2a3b; font-weight: 700; white-space: nowrap; transition: background 120ms; }
+.v2-end-turn-btn:hover { background: rgba(233, 69, 96, 0.28); }
 .v2-waiting-msg { font-size: 10px; color: #8d5b77; padding: 3px 0; line-height: 1.4; }
 .v2-open-panel-btn { background: linear-gradient(135deg, rgba(255,126,182,0.18), rgba(142,107,255,0.14)); border: 1px solid rgba(205,159,189,0.4); border-radius: 8px; padding: 4px 8px; font-size: 10px; font-weight: 700; cursor: pointer; color: #5b2944; font-family: inherit; min-height: 24px; }
 
