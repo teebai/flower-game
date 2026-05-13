@@ -596,26 +596,148 @@ server.app.use(async (ctx: any, next: () => Promise<void>) => {
   const joinPathMatch = ctx.path.match(/^\/games\/flower-game\/([^/]+)\/join$/);
   if (joinPathMatch) {
     const matchID = decodeURIComponent(joinPathMatch[1] ?? '').trim();
-    if (matchID) {
-      const room = await fetchRoomSummary(matchID);
-      if (!room) {
+
+    // CORS
+    ctx.set('Access-Control-Allow-Origin', '*');
+    ctx.set('Access-Control-Allow-Headers', 'Content-Type');
+    ctx.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+
+    if (ctx.method === 'OPTIONS') {
+      ctx.status = 204;
+      return;
+    }
+
+    if (ctx.method !== 'POST') {
+      ctx.status = 405;
+      ctx.type = 'application/json';
+      ctx.body = { error: 'Method not allowed' };
+      return;
+    }
+
+    if (!matchID) {
+      ctx.status = 400;
+      ctx.type = 'application/json';
+      ctx.body = { error: 'matchID is required' };
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(ctx.req) as {
+        playerID?: string;
+        playerName?: string;
+      };
+      let playerID = typeof body.playerID === 'string' ? body.playerID.trim() : '';
+      const playerName = typeof body.playerName === 'string' ? body.playerName.trim() : '';
+
+      if (!playerName) {
+        ctx.status = 403;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'playerName is required' };
+        return;
+      }
+
+      const { state, metadata } = await db.fetch(matchID, { state: true, metadata: true });
+      if (!metadata) {
         ctx.status = 404;
         ctx.type = 'application/json';
         ctx.body = { error: 'Match not found' };
         return;
       }
-      if (room.started) {
+
+      const lobbyMetadata = metadata as LobbyMetadata;
+      const roomState = getRoomStateSnapshot(state);
+
+      if (roomState.phase !== 'waiting') {
         ctx.status = 409;
         ctx.type = 'application/json';
         ctx.body = { error: 'That room has already started.' };
         return;
       }
-      if (room.joinedCount >= room.maxPlayers) {
+
+      const metaPlayers = lobbyMetadata.players ?? {};
+      const maxPlayers = roomState.maxPlayers ?? 6;
+
+      // Find first available playerID if not provided
+      if (!playerID) {
+        for (let i = 0; i < maxPlayers; i++) {
+          const pid = String(i);
+          if (!metaPlayers[pid] || !metaPlayers[pid].name) {
+            playerID = pid;
+            break;
+          }
+        }
+      }
+
+      if (!playerID) {
         ctx.status = 409;
         ctx.type = 'application/json';
         ctx.body = { error: 'No open seats in that match' };
         return;
       }
+
+      // Check seat is available
+      if (metaPlayers[playerID]?.name) {
+        ctx.status = 409;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Player ' + playerID + ' not available' };
+        return;
+      }
+
+      // Generate credentials
+      const playerCredentials = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+      // Update metadata
+      const nextMetaPlayers = { ...metaPlayers };
+      nextMetaPlayers[playerID] = {
+        id: playerID,
+        name: playerName,
+        credentials: playerCredentials,
+      };
+
+      await db.setMetadata(matchID, {
+        ...lobbyMetadata,
+        players: nextMetaPlayers,
+        updatedAt: Date.now(),
+      });
+
+      // Update game state G.players
+      const gPlayers = Array.isArray(roomState.players) ? [...roomState.players] : [];
+      const existingIndex = gPlayers.findIndex((p: any) => String(p?.id ?? '') === playerID);
+      const newPlayer = {
+        id: playerID,
+        name: playerName,
+        hand: [],
+        garden: { sets: [] },
+        matchStats: { flowersPlanted: 0 },
+      };
+      if (existingIndex >= 0) {
+        gPlayers[existingIndex] = { ...gPlayers[existingIndex], ...newPlayer };
+      } else {
+        gPlayers.push(newPlayer);
+      }
+
+      // Sort by playerID to maintain order
+      gPlayers.sort((a: any, b: any) => Number(a.id) - Number(b.id));
+
+      const nextG = {
+        ...state.G,
+        players: gPlayers,
+        log: [...((state.G?.log ?? []) as string[]), `${playerName} joined the room.`],
+      };
+
+      const nextState = { ...state, G: nextG };
+      await db.setState(matchID, nextState, []);
+
+      ctx.type = 'application/json';
+      ctx.body = { playerID, playerCredentials };
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown join error';
+      console.warn(`[FlowerGame] join failed for ${matchID}:`, message);
+      ctx.status = 500;
+      ctx.type = 'application/json';
+      ctx.body = { error: message };
+      return;
     }
   }
 
