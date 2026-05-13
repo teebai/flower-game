@@ -109,7 +109,7 @@ export const PlayerGardenPanel = React.memo(function PlayerGardenPanel({
       <div className={`garden-body ${gardenSettle ? 'is-settling' : ''}`}>
         {gardenFx?.type === 'natural-disaster' && (
           <div key={gardenFx.key} className="garden-visual-fx garden-visual-fx--natural-disaster" aria-hidden="true">
-            <img src="/assets/natural-disaster.gif" alt="" className="garden-visual-fx__image" />
+            <img src="/assets/natural-disaster.gif" alt="" className="garden-visual-fx__image" draggable={false} />
           </div>
         )}
         {chatBubbles[player.id] && (
@@ -145,12 +145,6 @@ export const PlayerGardenPanel = React.memo(function PlayerGardenPanel({
               : <GardenFlowerField
                   sets={player.garden.sets}
                   playerId={player.id}
-                  hoveredSetId={hoveredSetId}
-                  hoveredPlayerId={hoveredPlayerId}
-                  hoverLevel={hoverLevel}
-                  hoverMode={hoverMode}
-                  isDragActive={activeGardenCardId !== null && canDropTarget}
-                  lastDropRef={{ current: null }}
                   onSetClick={(setId) => {
                     if (canDropTarget && activeGardenCardId) {
                       onSetClick(player.id, setId);
@@ -159,8 +153,6 @@ export const PlayerGardenPanel = React.memo(function PlayerGardenPanel({
                       onSetClick(player.id, setId);
                     }
                   }}
-                  onSetHover={onSetHover}
-                  onPlayerHover={onPlayerHover}
                   highlightSetId={activeGardenSetId}
                   attackedSetId={player.id === attackedGardenPlayerId ? attackedGardenSetId : undefined}
                   changedSetIds={gardenSettle?.changedSetIds ?? []}

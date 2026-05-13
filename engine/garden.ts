@@ -393,7 +393,7 @@ export function plantFlower(
   if (existingIdx !== -1) {
     // Add to existing set
     const target    = sets[existingIdx];
-    const wasComplete = target.isComplete;
+    // const wasComplete = target.isComplete;
     target.flowers.push(storedFlower);
     const updated = classifySet(target);
     sets[existingIdx] = updated;

@@ -25,16 +25,16 @@ function normalizeRoomConfig(players: PlayerSetup[], config?: RoomConfig): Requi
   return {
     roomName: config?.roomName?.trim() || 'Flower Room',
     ownerPlayerId,
-    minPlayers: Math.max(3, Math.min(6, config?.minPlayers ?? 3)),
-    maxPlayers: Math.max(3, Math.min(6, config?.maxPlayers ?? 6)),
+    minPlayers: Math.max(2, Math.min(6, config?.minPlayers ?? 3)),
+    maxPlayers: Math.max(2, Math.min(6, config?.maxPlayers ?? 6)),
     readyPlayerIds: [...new Set((config?.readyPlayerIds ?? []).filter(Boolean))],
     startedAt: Math.max(0, config?.startedAt ?? 0),
   };
 }
 
 export function createWaitingRoom(players: PlayerSetup[], config?: RoomConfig): GameState {
-  if (players.length < 3 || players.length > 6) {
-    throw new Error('Flower Game waiting rooms support 3–6 seats');
+  if (players.length < 2 || players.length > 6) {
+    throw new Error('Flower Game waiting rooms support 2–6 seats');
   }
 
   const room = normalizeRoomConfig(players, config);
@@ -55,7 +55,9 @@ export function createWaitingRoom(players: PlayerSetup[], config?: RoomConfig): 
     ownerPlayerId: room.ownerPlayerId,
     minPlayers: room.minPlayers,
     maxPlayers: room.maxPlayers,
-    readyPlayerIds: room.readyPlayerIds,
+    readyPlayerIds: room.ownerPlayerId
+      ? [...new Set([...room.readyPlayerIds, room.ownerPlayerId])]
+      : room.readyPlayerIds,
     players: gamePlayers,
     turnOrder: gamePlayers.map(player => player.id),
     currentPlayerIndex: 0,

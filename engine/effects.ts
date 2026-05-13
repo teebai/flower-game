@@ -4,7 +4,7 @@
 
 import {
   GameState, GameAction, GameEvent,
-  FlowerCard, Card, Player,
+  FlowerCard, Card,
 } from '../types';
 import {
   getPlayer, updatePlayer, addLog, updateGodsFavourite, incrementPlayerFlowersPlanted,
@@ -12,7 +12,7 @@ import {
 import {
   plantFlower, removeFromSet, canBugTarget, canWindTarget, findTargetSet, resolveSetColor, normalizeGardenTokens,
 } from './garden';
-import { drawCards, reshuffleDiscard } from '../cards/deck';
+import { drawCards } from '../cards/deck';
 import { shuffle } from '../utils/shuffle';
 import { checkWinner } from './winCondition';
 
@@ -255,21 +255,33 @@ export function resolveBug(
 ): EffectResult {
   const events: GameEvent[] = [];
   const isAutumn   = state.season === 'autumn';
-  const discardCount = isAutumn ? 2 : 1;
   const target     = getPlayer(state, action.targetPlayerId!);
   const targetSet  = target.garden.sets.find(s => s.id === action.targetSetId);
 
   if (!targetSet) throw new Error('Target set not found');
   if (!canBugTarget(targetSet, isAutumn)) throw new Error('Set is immune to Bug');
 
-  // During Autumn, Bug avoids the Triple Rainbow card automatically
-  const { garden, removedFlowers } = removeFromSet(
-    target.garden,
-    targetSet.id,
-    discardCount
-  );
+  let s: GameState;
+  let removedFlowers: FlowerCard[];
 
-  let s = updatePlayer(state, { ...target, garden });
+  if (isAutumn && action.targetCardIds && action.targetCardIds.length > 0) {
+    // Autumn with specific flower targets: remove exactly those flowers
+    const idsToRemove = new Set(action.targetCardIds);
+    removedFlowers = targetSet.flowers.filter(f => idsToRemove.has(f.id));
+    const remainingFlowers = targetSet.flowers.filter(f => !idsToRemove.has(f.id));
+
+    const updatedSets = target.garden.sets.map(set =>
+      set.id === targetSet.id ? { ...set, flowers: remainingFlowers } : set
+    );
+    s = updatePlayer(state, { ...target, garden: { sets: updatedSets } });
+  } else {
+    // Normal: auto-remove 1 (or 2 in Autumn without specific targets)
+    const discardCount = isAutumn ? 2 : 1;
+    const result = removeFromSet(target.garden, targetSet.id, discardCount);
+    s = updatePlayer(state, { ...target, garden: result.garden });
+    removedFlowers = result.removedFlowers;
+  }
+
   s = { ...s, discardPile: [...s.discardPile, ...removedFlowers] };
 
   const actor = getPlayer(s, action.playerId);

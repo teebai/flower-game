@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useMatterGardens } from '../hooks/useMatterGardens';
 import type { GardenSet, FlowerColor } from '../types/gameTypes';
 import { flowerArt } from '../utils/flowerArt';
@@ -6,17 +6,14 @@ import { flowerArt } from '../utils/flowerArt';
 // ============================================================
 // GARDEN FLOWER FIELD — Renders all flowers in a player's garden
 // Single organic cluster, no visible containers
-// Click + hover handling via invisible zones at set centers
+// Click handling via invisible zones at set centers
+// Target highlighting via CSS 'targeted' class (driven by dragState)
 // ============================================================
 
 export interface GardenFlowerFieldProps {
   sets: GardenSet[];
   playerId: string;
-  hoveredSetId: string | null;
-  hoveredPlayerId: string | null;
-  hoverLevel: 'flower' | 'set' | 'player' | null;
-  hoverMode: 'flower' | 'set' | 'garden' | 'none';
-  isDragActive: boolean;
+  targetedSetId?: string | null;
   onSetClick?: (setId: string) => void;
   onSetHover?: (setId: string | null) => void;
   onPlayerHover?: (playerId: string | null) => void;
@@ -30,11 +27,7 @@ export interface GardenFlowerFieldProps {
 export const GardenFlowerField = React.memo(function GardenFlowerField({
   sets,
   playerId,
-  hoveredSetId,
-  hoveredPlayerId,
-  hoverLevel,
-  hoverMode,
-  isDragActive,
+  targetedSetId,
   onSetClick,
   onSetHover,
   onPlayerHover,
@@ -60,39 +53,13 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
     return () => ro.disconnect();
   }, []);
 
-  const [hoveredFlowerId, setHoveredFlowerId] = useState<string | null>(null);
-  const [hoveredFlowerColor, setHoveredFlowerColor] = useState<string | null>(null);
-
   const { particles, setCenters, containerW, containerH } = useMatterGardens({
     sets,
     playerId,
-    hoveredFlowerId: hoverMode === 'flower' ? hoveredFlowerId : null,
-    hoveredSetId,
-    hoveredPlayerId,
-    hoverLevel,
-    isDragActive,
     containerWidth: containerSize.width,
     containerHeight: containerSize.height,
     changedSetIds,
   });
-
-  // Determine which flowers should react based on hoverMode
-  function isTargetFlower(p: typeof particles[0]): boolean {
-    if (!isDragActive || hoverMode === 'none') return false;
-    if (hoverMode === 'flower') {
-      // Only the specific hovered flower
-      return hoveredFlowerId === p.id;
-    }
-    if (hoverMode === 'set') {
-      // All flowers in the hovered set
-      return hoveredSetId === p.setId;
-    }
-    if (hoverMode === 'garden') {
-      // All flowers in this garden
-      return hoveredPlayerId === playerId;
-    }
-    return false;
-  }
 
   // Power label helper — only 👑 and ✦, complete sets use glow instead
   function powerLabel(set: GardenSet): string {
@@ -124,6 +91,7 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
       {/* Render all flowers */}
       {(() => {
         const completeSetIds = new Set(sets.filter(s => s.isComplete && !s.isDivine && !s.isSolid && !s.isToken).map(s => s.id));
+
         return particles.map((p) => {
           const art = flowerArt(p.color);
           if (p.opacity < 0.01) return null;
@@ -131,22 +99,20 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
           const isHighlighted = highlightSetId === p.setId;
           const isAttacked = attackedSetId === p.setId;
           const isCompleteSet = completeSetIds.has(p.setId);
-
-          const isTarget = isTargetFlower(p);
+          const isTargeted = targetedSetId === p.setId;
 
           return (
             <img
               key={p.id}
               src={art}
               alt={p.color}
+              draggable={false}
               className={[
                 'garden-flower-particle',
                 isHighlighted ? 'is-highlighted' : '',
                 isAttacked ? 'is-attacked' : '',
                 isCompleteSet ? 'is-complete-set' : '',
-                isTarget ? 'is-target-flower' : '',
-                (hoverMode === 'set' && hoveredSetId === p.setId) ? 'is-target-set' : '',
-                (hoverMode === 'garden' && hoveredPlayerId === playerId) ? 'is-target-garden' : '',
+                isTargeted ? 'targeted wiggle' : '',
               ].filter(Boolean).join(' ')}
               style={{
                 position: 'absolute',
@@ -154,26 +120,11 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
                 top: `calc(50% + ${p.y.toFixed(1)}px - ${p.size / 2}px)`,
                 width: p.size,
                 height: p.size,
-                '--flower-rotation': `${p.rotation.toFixed(1)}deg`,
-                '--physics-scale': p.hoverScale.toFixed(3),
-                transform: 'rotate(var(--flower-rotation)) scale(var(--physics-scale))',
-                filter: `brightness(${p.brightness.toFixed(2)}) saturate(${p.saturate.toFixed(2)})${isCompleteSet ? ' drop-shadow(0 0 8px rgba(78,204,163,0.6))' : ''}`,
+                transformOrigin: 'center',
+                filter: isCompleteSet ? 'drop-shadow(0 0 8px rgba(78,204,163,0.6))' : undefined,
                 opacity: p.opacity,
-                zIndex: Math.floor(p.size),
-                willChange: 'transform',
-                cursor: hoverLevel === 'set' ? 'pointer' : 'default',
-              } as React.CSSProperties}
-              onPointerEnter={(e) => {
-                e.stopPropagation();
-                setHoveredFlowerId(p.id);
-                setHoveredFlowerColor(p.color);
-                onSetHover?.(p.setId);
-              }}
-              onPointerLeave={(e) => {
-                e.stopPropagation();
-                setHoveredFlowerId(null);
-                setHoveredFlowerColor(null);
-                onSetHover?.(null);
+                zIndex: isTargeted ? 100 : Math.floor(p.size),
+                cursor: onSetClick ? 'pointer' : 'default',
               }}
               onClick={(e) => {
                 e.stopPropagation();
@@ -184,15 +135,14 @@ export const GardenFlowerField = React.memo(function GardenFlowerField({
         });
       })()}
 
-      {/* Invisible hover/click zones per set — with drag target glow */}
+      {/* Invisible click zones per set */}
       {sets.map((s) => {
         const center = setCenters[s.id];
         if (!center) return null;
-        const isHovered = hoveredSetId === s.id;
         return (
           <div
             key={`zone-${s.id}`}
-            className={`garden-set-hover-zone${isDragActive ? ' drag-active' : ''}${isHovered && isDragActive ? ' is-target' : ''}`}
+            className="garden-set-hover-zone"
             style={{
               position: 'absolute',
               left: `calc(50% + ${center.x}px - 45px)`,

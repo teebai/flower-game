@@ -13,7 +13,7 @@ export const InlineCardLabel = React.memo(function InlineCardLabel({ card }: Inl
     return (
       <span className="inline-card-label">
         {art
-          ? <img src={art} alt={card.color} className="inline-flower-icon" />
+          ? <img src={art} alt={card.color} className="inline-flower-icon" draggable={false} />
           : <span aria-hidden="true">{cardLabel(card)}</span>}
         <span>{cardName(card)}</span>
       </span>

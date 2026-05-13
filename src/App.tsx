@@ -12,15 +12,14 @@ import { FlowerBoard } from './board/FlowerBoard';
 import { Lobby } from './lobby/Lobby';
 import { MatchContext, type MatchSeatPresence } from './matchContext';
 
-const DEFAULT_SERVER = (() => {
-  // Use current hostname for server (works on local WiFi)
+const SERVER = (() => {
   const host = window.location.hostname;
   if (host === 'localhost' || host === '127.0.0.1') {
-    return 'http://localhost:8000';
+    return (import.meta.env.VITE_GAME_SERVER_URL as string | undefined) || 'http://localhost:8000';
   }
-  return `http://${host}:8000`;
+  // Production / tunnel / Railway: same origin (server serves static files + API)
+  return window.location.origin;
 })();
-const SERVER = import.meta.env.VITE_GAME_SERVER_URL || DEFAULT_SERVER;
 
 import { FlowerGame } from '../game/FlowerGame';
 

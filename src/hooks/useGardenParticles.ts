@@ -57,18 +57,7 @@ const BREEZE_FREQ = 0.001;
 const BREEZE_PHASE_SPREAD = 2.4;
 const BREEZE_TURBULENCE = 0.2;
 
-// Visual constants
-const BASE_BRIGHTNESS = 1.12;
-const BASE_SATURATE = 1.22;
-const FLOWER_HOVER_SCALE = 1.5;
-const FLOWER_HOVER_BRIGHTNESS = 1.5;
-const FLOWER_HOVER_SATURATE = 1.4;
-const SET_HOVER_SCALE = 1.5;
-const SET_HOVER_BRIGHTNESS = 1.35;
-const SET_HOVER_SATURATE = 1.3;
-const PLAYER_HOVER_SCALE = 1.5;
-const PLAYER_HOVER_BRIGHTNESS = 1.2;
-const PLAYER_HOVER_SATURATE = 1.25;
+// Visual constants — hover visuals handled by CSS in GardenFlowerField.tsx
 
 function noise(phase: number): number {
   return (
@@ -236,8 +225,8 @@ export function useGardenParticles({
         brownianPhase: rng() * Math.PI * 2,
         color: flower.color,
         hoverScale: 1.0,
-        brightness: BASE_BRIGHTNESS,
-        saturate: BASE_SATURATE,
+        brightness: 1.0,
+        saturate: 1.0,
         opacity: 0.6,
         isDivine: set?.isDivine ?? false,
         isSolid: set?.isSolid ?? false,
@@ -410,50 +399,10 @@ export function useGardenParticles({
           Math.sin(time * BREEZE_FREQ * 1.618 + p.brownianPhase * BREEZE_PHASE_SPREAD * 2.3) * BREEZE_AMP * BREEZE_TURBULENCE;
         p.rotation = breeze + p.rotVel;
 
-        let targetScale = 1.0;
-        let targetBrightness = BASE_BRIGHTNESS;
-        let targetSaturate = BASE_SATURATE;
-        let jitterX = 0;
-        let jitterY = 0;
-        let jitterRot = 0;
-
-        if (hoverLevel === 'flower' && hoveredFlowerId === p.id) {
-          targetScale = FLOWER_HOVER_SCALE;
-          targetBrightness = FLOWER_HOVER_BRIGHTNESS;
-          targetSaturate = FLOWER_HOVER_SATURATE;
-          // Fast excited wobble
-          const jit = Math.sin(time * 18 + p.brownianPhase) * 3.5;
-          jitterX = Math.cos(p.brownianPhase * 5) * jit;
-          jitterY = Math.sin(p.brownianPhase * 5) * jit;
-          jitterRot = Math.sin(time * 14 + p.brownianPhase) * 8;
-        } else if (hoverLevel === 'set' && hoveredSetId === p.setId) {
-          targetScale = SET_HOVER_SCALE;
-          targetBrightness = SET_HOVER_BRIGHTNESS;
-          targetSaturate = SET_HOVER_SATURATE;
-          // Set-level fast excitement
-          const jit = Math.sin(time * 14 + p.brownianPhase) * 2.8;
-          jitterX = Math.cos(p.brownianPhase * 4) * jit;
-          jitterY = Math.sin(p.brownianPhase * 4) * jit;
-          jitterRot = Math.sin(time * 10 + p.brownianPhase) * 5;
-        } else if (hoverLevel === 'player' && hoveredPlayerId === playerId) {
-          targetScale = PLAYER_HOVER_SCALE;
-          targetBrightness = PLAYER_HOVER_BRIGHTNESS;
-          targetSaturate = PLAYER_HOVER_SATURATE;
-          // Garden-level wave excitement
-          const jit = Math.sin(time * 10 + p.brownianPhase) * 2.2;
-          jitterX = Math.cos(p.brownianPhase * 3) * jit;
-          jitterY = Math.sin(p.brownianPhase * 3) * jit;
-          jitterRot = Math.sin(time * 7 + p.brownianPhase) * 3;
-        }
-
-        p.hoverScale += (targetScale - p.hoverScale) * HOVER_SPRING_K * dt;
-        p.brightness += (targetBrightness - p.brightness) * HOVER_SPRING_K * dt;
-        p.saturate += (targetSaturate - p.saturate) * HOVER_SPRING_K * dt;
-
-        // Apply jitter to position and rotation
-        p.x += jitterX * dt;
-        p.y += jitterY * dt;
-        p.rotation += jitterRot * dt;
+        // Hover visuals handled by CSS — physics only computes positions
+        p.hoverScale += (1.0 - p.hoverScale) * HOVER_SPRING_K * dt;
+        p.brightness = 1.0;
+        p.saturate = 1.0;
 
         if (p.opacity < 1) {
           p.opacity = Math.min(1, p.opacity + 0.08 * dt); // faster fade-in

@@ -307,7 +307,6 @@ export class FlowerGameEngine {
       return { success: false, error: 'Discard is only allowed during Autumn' };
     }
 
-    const events: GameEvent[] = [];
     let result: { state: GameState; events: GameEvent[] };
 
     switch (action.type) {
@@ -333,8 +332,16 @@ export class FlowerGameEngine {
         if (windSet.containsTripleRainbow && windCount !== 2) {
           return { success: false, error: 'Triple Rainbow requires Double Wind' };
         }
-        const s = this.openCounterWindow(state, action, windCount);
-        return { success: true, state: s, events: [] };
+
+        // Wind now resolves immediately (no counter window)
+        const actor = getPlayer(state, action.playerId);
+        const cardIds = action.cardIds ?? [];
+        const playedCards = actor.hand.filter(c => cardIds.includes(c.id));
+        const updatedHand = actor.hand.filter(c => !cardIds.includes(c.id));
+        let windState = updatePlayer(state, { ...actor, hand: updatedHand });
+        windState = { ...windState, discardPile: [...windState.discardPile, ...playedCards] };
+        result = resolveWind(windState, action, windCount);
+        break;
       }
       case 'play_bug': {
         // Validate target before opening counter window — prevents unsolvable freeze
@@ -347,6 +354,16 @@ export class FlowerGameEngine {
         if (bugSet.isDivine) return { success: false, error: 'Divine sets are invulnerable' };
         if (bugSet.isSolid && state.season !== 'autumn') {
           return { success: false, error: 'Cannot target a Solid Set with Bug outside Autumn' };
+        }
+        // Autumn Bug: validate specific flower targets if provided
+        if (state.season === 'autumn' && action.targetCardIds) {
+          if (action.targetCardIds.length !== 2) {
+            return { success: false, error: 'Autumn Bug requires exactly 2 target flowers' };
+          }
+          const setFlowerIds = new Set(bugSet.flowers.map(f => f.id));
+          if (!action.targetCardIds.every(id => setFlowerIds.has(id))) {
+            return { success: false, error: 'Target flowers must be in the selected set' };
+          }
         }
         return { success: true, state: this.openCounterWindow(state, action), events: [] };
       }
@@ -381,12 +398,37 @@ export class FlowerGameEngine {
         const s = this.openCounterWindow(state, action);
         return { success: true, state: s, events: [] };
       }
-      case 'play_let_go':
+      // ── Global cards (no target required) ────────────────────
+      case 'play_let_go': {
+        if (!action.cardIds || action.cardIds.length !== 1) {
+          return { success: false, error: 'Let Go requires 1 card' };
+        }
         result = resolveLetGo(state, action);
         break;
-      case 'play_season':
+      }
+      case 'play_season': {
+        if (!action.cardIds || action.cardIds.length !== 1) {
+          return { success: false, error: 'Season requires 1 card' };
+        }
         result = resolveSeason(state, action);
         break;
+      }
+      case 'play_eclipse': {
+        if (!action.cardIds || action.cardIds.length !== 1) {
+          return { success: false, error: 'Eclipse requires 1 card' };
+        }
+        result = resolveEclipse(state, action);
+        break;
+      }
+      case 'play_great_reset': {
+        if (!action.cardIds || action.cardIds.length !== 1) {
+          return { success: false, error: 'Great Reset requires 1 card' };
+        }
+        result = resolveGreatReset(state, action);
+        break;
+      }
+
+      // ── Targeted cards ───────────────────────────────────────
       case 'play_natural_disaster': {
         // Validate BEFORE opening counter window — prevents unsolvable freeze
         if (!action.targetPlayerId || !action.targetSetId) {
@@ -398,12 +440,6 @@ export class FlowerGameEngine {
         if (ndSet.isDivine) return { success: false, error: 'Divine sets are invulnerable' };
         return { success: true, state: this.openCounterWindow(state, action), events: [] };
       }
-      case 'play_eclipse':
-        result = resolveEclipse(state, action);
-        break;
-      case 'play_great_reset':
-        result = resolveGreatReset(state, action);
-        break;
       case 'discard_flower':
         result = resolveDiscardFlower(state, action);
         break;
@@ -512,7 +548,6 @@ export class FlowerGameEngine {
       if (!dpCard) return { success: false, error: 'Divine Protection card not found in hand' };
 
       // Check if original action is blockable
-      const originalCard = pending.original.cardIds?.[0];
       // (Wind is Blockable = true; we re-use the card's isBlockable flag stored at play time)
       // For simplicity we check by action type
       const unstoppableActions = [

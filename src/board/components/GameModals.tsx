@@ -4,7 +4,7 @@ import type { MatchContextType } from '../../matchContext';
 import { formatSeasonLabel, formatElapsedClock } from '../../utils/formatters';
 
 interface GameModalsProps {
-  modalOpen: 'menu' | 'results' | 'rules' | null;
+  modalOpen: 'menu' | 'results' | 'rules' | 'bugReport' | 'changelog' | 'quitConfirm' | null;
   theme: {
     panel: string;
     panelSoft: string;

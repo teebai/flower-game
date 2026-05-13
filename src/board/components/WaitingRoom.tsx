@@ -20,17 +20,20 @@ interface WaitingRoomProps {
   onStart: () => void;
   onReady: () => void;
   onLeave: () => void;
+  onKick?: (targetPlayerID: string) => void;
 }
 
 export const WaitingRoom = React.memo(function WaitingRoom({
-  G, playerID, theme, matchCtx, nameOf, isSubmitting, onStart, onReady, onLeave,
+  G, playerID, theme, matchCtx, nameOf, isSubmitting, onStart, onReady, onLeave, onKick,
 }: WaitingRoomProps) {
   const roomOwnerName = nameOf(G.players.find(p => p.id === G.ownerPlayerId) ?? null) || 'Room owner';
   const joinedRoomCount = G.players.filter(p => p.name.trim()).length;
   const roomReadyEnabled = joinedRoomCount >= G.minPlayers;
   const myReady = !!playerID && G.readyPlayerIds.includes(playerID);
   const iAmRoomOwner = !!playerID && G.ownerPlayerId === playerID;
-  const allReady = G.players.every(p => !p.name.trim() || G.readyPlayerIds.includes(p.id));
+  const joinedPlayers = G.players.filter(p => p.name.trim());
+  const readyJoinedCount = joinedPlayers.filter(p => G.readyPlayerIds.includes(p.id)).length;
+  const enoughReady = readyJoinedCount >= G.minPlayers;
   const isOwner = playerID === G.ownerPlayerId;
 
   return (
@@ -63,7 +66,7 @@ export const WaitingRoom = React.memo(function WaitingRoom({
           >
             <div className="waiting-room-card-label">Room rules</div>
             <div className="waiting-room-card-copy" style={{ color: theme.muted }}>
-              {G.minPlayers}-{G.maxPlayers} players. Seats shuffle when the owner starts the game, and the opening player is chosen from that shuffled order.
+              {G.minPlayers}-{G.maxPlayers} players. Owner is auto-ready. Game starts when at least {G.minPlayers} joined players are ready. Seats shuffle on start.
             </div>
           </div>
         </div>
@@ -92,11 +95,11 @@ export const WaitingRoom = React.memo(function WaitingRoom({
                         Owner
                       </span>
                     )}
-                    {occupied && isReady && (
+                    {(occupied && isReady) || isOwnerSeat ? (
                       <span className="waiting-room-badge" style={{ color: '#1a1a2e', background: '#4ecca3' }}>
                         Ready
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 <div className="waiting-room-seat-name" style={{ color: occupied ? theme.text : theme.muted }}>
@@ -109,6 +112,16 @@ export const WaitingRoom = React.memo(function WaitingRoom({
                       : 'Joined and waiting.'
                     : 'Another player can join here.'}
                 </div>
+                {isOwner && occupied && !isOwnerSeat && onKick && (
+                  <button
+                    className="waiting-room-kick-btn"
+                    onClick={() => onKick(player.id)}
+                    title={`Kick ${player.name}`}
+                    style={{ marginTop: 8 }}
+                  >
+                    🥾 Kick
+                  </button>
+                )}
               </div>
             );
           })}
@@ -119,11 +132,15 @@ export const WaitingRoom = React.memo(function WaitingRoom({
             <button
               className="waiting-room-btn-primary"
               style={{
-                background: allReady ? theme.accent : theme.panel,
-                color: allReady ? '#1a1a2e' : theme.muted,
+                background: enoughReady ? theme.accent : theme.panelSoft,
+                color: enoughReady ? '#1a1a2e' : theme.muted,
+                border: `1px solid ${enoughReady ? theme.accent : theme.border}`,
+                cursor: enoughReady ? 'pointer' : 'not-allowed',
+                opacity: enoughReady ? 1 : 0.7,
               }}
               onClick={onStart}
-              disabled={!allReady}
+              disabled={!enoughReady}
+              title={enoughReady ? `Start with ${readyJoinedCount} ready players` : `${readyJoinedCount}/${joinedPlayers.length} ready · need ${G.minPlayers} to start`}
             >
               🚀 Start Match
             </button>

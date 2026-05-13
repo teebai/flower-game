@@ -8,8 +8,14 @@ import { useAuth } from '../auth/AuthProvider';
 import type { MatchInfo } from '../auth/storage';
 import { CardArtManager } from '../cards/CardArtManager';
 
-const DEFAULT_SERVER = 'http://localhost:8000';
-const SERVER = import.meta.env.VITE_GAME_SERVER_URL || DEFAULT_SERVER;
+const SERVER = (() => {
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return (import.meta.env.VITE_GAME_SERVER_URL as string | undefined) || 'http://localhost:8000';
+  }
+  // Production / tunnel / Railway: same origin (server serves static files + API)
+  return window.location.origin;
+})();
 const IDENTITY_SERVER = import.meta.env.VITE_IDENTITY_SERVER_URL?.trim() || '';
 const GAME   = 'flower-game';
 
@@ -741,7 +747,7 @@ export function Lobby({ onJoin, storedMatch }: Props) {
                 {profile && !compactLockedIdentity && (
                   <div className="lobby-auth-chip">
                     {profile.avatarUrl ? (
-                      <img src={profile.avatarUrl} alt={profile.displayName} className="lobby-auth-avatar" />
+                      <img src={profile.avatarUrl} alt={profile.displayName} className="lobby-auth-avatar" draggable={false} />
                     ) : (
                       <div className="lobby-auth-avatar lobby-auth-avatar--fallback">
                         {profile.displayName.slice(0, 1).toUpperCase()}

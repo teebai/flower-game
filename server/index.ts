@@ -29,7 +29,7 @@ const PORT = Number(process.env.PORT ?? 8000);
 const LIVE_VERSION = process.env.FLOWER_GAME_VERSION ?? 'flower-game-v6';
 const GAME_ID = FlowerGame.name;
 const HISTORY_DB_DIR = process.env.FLOWER_HISTORY_DB_DIR ?? path.resolve(process.cwd(), 'data/boardgameio-db');
-const FLOWER_ADMIN_KEY = process.env.FLOWER_ADMIN_KEY ?? process.env.ADMIN_KEY ?? 'flowerBugAdmin2026!';
+const FLOWER_ADMIN_KEY = process.env.FLOWER_ADMIN_KEY || (() => { throw new Error('FLOWER_ADMIN_KEY env var required') })();
 const MAX_CHAT_MESSAGES = 100;
 const MAX_CHAT_LENGTH = 400;
 const TURN_TIMEOUT_SEC = Number(process.env.FLOWER_TURN_TIMEOUT_SEC ?? 60);
@@ -453,7 +453,14 @@ const server = Server({
 
   // Allow all origins in development.
   // Restrict this to your domain in production.
-  origins: '*',
+  origins: (ctx) => {
+    const origin = ctx.get('origin') || '';
+    if (process.env.NODE_ENV === 'production') {
+      return origin || '*';
+    }
+    const allowed = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',');
+    return allowed.includes(origin) ? origin : allowed[0];
+  },
 });
 
 server.app.use(async (ctx: any, next: () => Promise<void>) => {
@@ -609,6 +616,388 @@ server.app.use(async (ctx: any, next: () => Promise<void>) => {
         ctx.body = { error: 'No open seats in that match' };
         return;
       }
+    }
+  }
+
+  // ── Kick player endpoint ────────────────────────────────────
+  const kickPathMatch = ctx.path.match(/^\/games\/flower-game\/([^/]+)\/kick$/);
+  if (kickPathMatch) {
+    ctx.set('Access-Control-Allow-Origin', '*');
+    ctx.set('Access-Control-Allow-Headers', 'Content-Type');
+    ctx.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+
+    if (ctx.method === 'OPTIONS') {
+      ctx.status = 204;
+      return;
+    }
+
+    if (ctx.method !== 'POST') {
+      ctx.status = 405;
+      ctx.type = 'application/json';
+      ctx.body = { error: 'Method not allowed' };
+      return;
+    }
+
+    const matchID = decodeURIComponent(kickPathMatch[1] ?? '').trim();
+    if (!matchID) {
+      ctx.status = 400;
+      ctx.type = 'application/json';
+      ctx.body = { error: 'matchID is required' };
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(ctx.req) as {
+        playerID?: string;
+        targetPlayerID?: string;
+        credentials?: string;
+      };
+      const playerID = typeof body.playerID === 'string' ? body.playerID.trim() : '';
+      const targetPlayerID = typeof body.targetPlayerID === 'string' ? body.targetPlayerID.trim() : '';
+      const credentials = typeof body.credentials === 'string' ? body.credentials.trim() : '';
+
+      if (!playerID || !targetPlayerID) {
+        ctx.status = 400;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'playerID and targetPlayerID are required' };
+        return;
+      }
+
+      const { state, metadata } = await db.fetch(matchID, { state: true, metadata: true });
+      if (!state || !metadata) {
+        ctx.status = 404;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Match not found' };
+        return;
+      }
+
+      const lobbyMetadata = metadata as LobbyMetadata;
+      const roomState = getRoomStateSnapshot(state);
+
+      if (roomState.phase !== 'waiting') {
+        ctx.status = 409;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Game has already started' };
+        return;
+      }
+
+      if (roomState.ownerPlayerId !== playerID) {
+        ctx.status = 403;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Only the room owner can kick players' };
+        return;
+      }
+
+      // Verify credentials
+      const requesterMeta = lobbyMetadata.players?.[playerID];
+      if (!requesterMeta || requesterMeta.credentials !== credentials) {
+        ctx.status = 403;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Invalid credentials' };
+        return;
+      }
+
+      if (targetPlayerID === playerID) {
+        ctx.status = 400;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'You cannot kick yourself' };
+        return;
+      }
+
+      const targetMeta = lobbyMetadata.players?.[targetPlayerID];
+      if (!targetMeta || !targetMeta.name) {
+        ctx.status = 404;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Target player not found' };
+        return;
+      }
+
+      // Remove from metadata
+      const nextPlayers = { ...lobbyMetadata.players };
+      delete nextPlayers[targetPlayerID];
+      await db.setMetadata(matchID, {
+        ...lobbyMetadata,
+        players: nextPlayers,
+        updatedAt: Date.now(),
+      } as unknown as Parameters<typeof db.setMetadata>[1]);
+
+      // Remove from game state
+      const gPlayers = (state.G?.players ?? []) as Array<{ id: string; name: string }>;
+      const gReady = (state.G?.readyPlayerIds ?? []) as string[];
+      const gTurnOrder = (state.G?.turnOrder ?? []) as string[];
+      const nextGPlayers = gPlayers.filter((p: any) => p.id !== targetPlayerID);
+      const nextGReady = gReady.filter(id => id !== targetPlayerID);
+      const nextGTurnOrder = gTurnOrder.filter(id => id !== targetPlayerID);
+
+      const targetName = gPlayers.find((p: any) => p.id === targetPlayerID)?.name ?? targetPlayerID;
+      const nextG = {
+        ...state.G,
+        players: nextGPlayers,
+        readyPlayerIds: nextGReady,
+        turnOrder: nextGTurnOrder,
+        log: [...((state.G?.log ?? []) as string[]), `${targetName} was kicked from the room.`],
+      };
+
+      const nextState = { ...state, G: nextG };
+      await db.setState(matchID, nextState, []);
+
+      ctx.type = 'application/json';
+      ctx.body = { ok: true, matchID, kickedPlayerID: targetPlayerID };
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown kick error';
+      console.warn(`[FlowerGame] kick failed for ${matchID}:`, message);
+      ctx.status = 500;
+      ctx.type = 'application/json';
+      ctx.body = { error: message };
+      return;
+    }
+  }
+
+  // ── Start game endpoint ─────────────────────────────────────
+  const startPathMatch = ctx.path.match(/^\/games\/flower-game\/([^/]+)\/start$/);
+  if (startPathMatch) {
+    ctx.set('Access-Control-Allow-Origin', '*');
+    ctx.set('Access-Control-Allow-Headers', 'Content-Type');
+    ctx.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+
+    if (ctx.method === 'OPTIONS') {
+      ctx.status = 204;
+      return;
+    }
+
+    if (ctx.method !== 'POST') {
+      ctx.status = 405;
+      ctx.type = 'application/json';
+      ctx.body = { error: 'Method not allowed' };
+      return;
+    }
+
+    const matchID = decodeURIComponent(startPathMatch[1] ?? '').trim();
+    if (!matchID) {
+      ctx.status = 400;
+      ctx.type = 'application/json';
+      ctx.body = { error: 'matchID is required' };
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(ctx.req) as {
+        playerID?: string;
+        credentials?: string;
+      };
+      const playerID = typeof body.playerID === 'string' ? body.playerID.trim() : '';
+      const credentials = typeof body.credentials === 'string' ? body.credentials.trim() : '';
+
+      if (!playerID) {
+        ctx.status = 400;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'playerID is required' };
+        return;
+      }
+
+      const { state, metadata } = await db.fetch(matchID, { state: true, metadata: true });
+      if (!state || !metadata) {
+        ctx.status = 404;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Match not found' };
+        return;
+      }
+
+      const lobbyMetadata = metadata as LobbyMetadata;
+      const roomState = getRoomStateSnapshot(state);
+
+      if (roomState.phase !== 'waiting') {
+        ctx.status = 409;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Game has already started' };
+        return;
+      }
+
+      if (roomState.ownerPlayerId !== playerID) {
+        ctx.status = 403;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Only the room owner can start the game' };
+        return;
+      }
+
+      // Verify credentials
+      const requesterMeta = lobbyMetadata.players?.[playerID];
+      if (!requesterMeta || requesterMeta.credentials !== credentials) {
+        ctx.status = 403;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Invalid credentials' };
+        return;
+      }
+
+      const joinedCount = (roomState.players ?? []).filter((p: any) => p.name?.trim()).length;
+      const readyCount = (roomState.readyPlayerIds ?? []).filter((id: string) =>
+        (roomState.players ?? []).some((p: any) => p.id === id && p.name?.trim())
+      ).length;
+
+      if (joinedCount < (roomState.minPlayers ?? 2)) {
+        ctx.status = 409;
+        ctx.type = 'application/json';
+        ctx.body = { error: `Need at least ${roomState.minPlayers} players to start` };
+        return;
+      }
+
+      if (readyCount < (roomState.minPlayers ?? 2)) {
+        ctx.status = 409;
+        ctx.type = 'application/json';
+        ctx.body = { error: `Need at least ${roomState.minPlayers ?? 2} ready players to start` };
+        return;
+      }
+
+      // Execute startGame move via Master
+      const result = await timeoutMaster.onUpdate(
+        makeMove('startGame', [], playerID, credentials),
+        (state as any)._stateID ?? 0,
+        matchID,
+        playerID
+      );
+
+      if (result && 'error' in result && result.error) {
+        ctx.status = 500;
+        ctx.type = 'application/json';
+        ctx.body = { error: result.error };
+        return;
+      }
+
+      ctx.type = 'application/json';
+      ctx.body = { ok: true, matchID, started: true };
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown start error';
+      console.warn(`[FlowerGame] start failed for ${matchID}:`, message);
+      ctx.status = 500;
+      ctx.type = 'application/json';
+      ctx.body = { error: message };
+      return;
+    }
+  }
+
+  // ── Leave room endpoint ─────────────────────────────────────
+  const leavePathMatch = ctx.path.match(/^\/games\/flower-game\/([^/]+)\/leave$/);
+  if (leavePathMatch) {
+    ctx.set('Access-Control-Allow-Origin', '*');
+    ctx.set('Access-Control-Allow-Headers', 'Content-Type');
+    ctx.set('Access-Control-Allow-Methods', 'POST,OPTIONS');
+
+    if (ctx.method === 'OPTIONS') {
+      ctx.status = 204;
+      return;
+    }
+
+    if (ctx.method !== 'POST') {
+      ctx.status = 405;
+      ctx.type = 'application/json';
+      ctx.body = { error: 'Method not allowed' };
+      return;
+    }
+
+    const matchID = decodeURIComponent(leavePathMatch[1] ?? '').trim();
+    if (!matchID) {
+      ctx.status = 400;
+      ctx.type = 'application/json';
+      ctx.body = { error: 'matchID is required' };
+      return;
+    }
+
+    try {
+      const body = await readJsonBody(ctx.req) as {
+        playerID?: string;
+        credentials?: string;
+      };
+      const playerID = typeof body.playerID === 'string' ? body.playerID.trim() : '';
+      const credentials = typeof body.credentials === 'string' ? body.credentials.trim() : '';
+
+      if (!playerID) {
+        ctx.status = 400;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'playerID is required' };
+        return;
+      }
+
+      const { state, metadata } = await db.fetch(matchID, { state: true, metadata: true });
+      if (!state || !metadata) {
+        ctx.status = 404;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Match not found' };
+        return;
+      }
+
+      const lobbyMetadata = metadata as LobbyMetadata;
+      const roomState = getRoomStateSnapshot(state);
+
+      // Verify credentials
+      const requesterMeta = lobbyMetadata.players?.[playerID];
+      if (!requesterMeta || requesterMeta.credentials !== credentials) {
+        ctx.status = 403;
+        ctx.type = 'application/json';
+        ctx.body = { error: 'Invalid credentials' };
+        return;
+      }
+
+      // Remove from metadata
+      const nextMetaPlayers = { ...lobbyMetadata.players };
+      delete nextMetaPlayers[playerID];
+      await db.setMetadata(matchID, {
+        ...lobbyMetadata,
+        players: nextMetaPlayers,
+        updatedAt: Date.now(),
+      } as unknown as Parameters<typeof db.setMetadata>[1]);
+
+      // Remove from game state
+      const gPlayers = (state.G?.players ?? []) as Array<{ id: string; name: string }>;
+      const gReady = (state.G?.readyPlayerIds ?? []) as string[];
+      const gTurnOrder = (state.G?.turnOrder ?? []) as string[];
+      const nextGPlayers = gPlayers.filter((p: any) => p.id !== playerID).map((p: any) =>
+        p.id === playerID ? { ...p, name: '' } : p
+      );
+      const nextGReady = gReady.filter(id => id !== playerID);
+      const nextGTurnOrder = gTurnOrder.filter(id => id !== playerID);
+
+      const playerName = gPlayers.find((p: any) => p.id === playerID)?.name ?? playerID;
+      const nextG = {
+        ...state.G,
+        players: nextGPlayers,
+        readyPlayerIds: nextGReady,
+        turnOrder: nextGTurnOrder,
+        log: [...((state.G?.log ?? []) as string[]), `${playerName} left the room.`],
+      };
+
+      // If owner leaves, assign new owner or delete room
+      if (roomState.ownerPlayerId === playerID) {
+        const remainingPlayers = nextGPlayers.filter((p: any) => p.name?.trim());
+        if (remainingPlayers.length === 0) {
+          await db.wipe(matchID);
+          chatByMatch.delete(matchID);
+          purgePresenceMatch(matchID);
+          console.log(`[FlowerGame] owner left, deleted room ${matchID}`);
+          ctx.type = 'application/json';
+          ctx.body = { ok: true, matchID, deleted: true };
+          return;
+        }
+        const newOwner = remainingPlayers[0];
+        nextG.ownerPlayerId = newOwner.id;
+        nextG.readyPlayerIds = [...new Set([...nextGReady, newOwner.id])];
+        nextG.log = [...nextG.log, `${newOwner.name} is now the room owner.`];
+      }
+
+      const nextState = { ...state, G: nextG };
+      await db.setState(matchID, nextState, []);
+
+      ctx.type = 'application/json';
+      ctx.body = { ok: true, matchID, leftPlayerID: playerID };
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown leave error';
+      console.warn(`[FlowerGame] leave failed for ${matchID}:`, message);
+      ctx.status = 500;
+      ctx.type = 'application/json';
+      ctx.body = { error: message };
+      return;
     }
   }
 
@@ -793,14 +1182,29 @@ server.app.use(async (ctx: any, next: () => Promise<void>) => {
 const distDir = path.join(__dirname, '..');
 if (fs.existsSync(distDir)) {
   server.app.use(async (ctx, next) => {
+    // Skip API routes
     if (ctx.path.startsWith('/games/') || ctx.path.startsWith('/lobby') || ctx.path === '/version') {
       return next();
     }
-    let filePath = path.join(distDir, ctx.path);
-    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-      filePath = path.join(distDir, 'index.html');
+
+    // Security: prevent directory traversal
+    const sanitized = path.normalize(ctx.path).replace(/^(\.\.(\/|\\|$))+/, '');
+    const resolved = path.join(distDir, sanitized);
+
+    // Ensure resolved path stays within distDir
+    if (!resolved.startsWith(path.resolve(distDir))) {
+      ctx.status = 403;
+      ctx.body = 'Forbidden';
+      return;
     }
-    const ext = path.extname(filePath);
+
+    // Check file exists and is not a directory
+    if (!fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) {
+      return next(); // Let other middleware handle (e.g., SPA fallback)
+    }
+
+    // Serve file with correct MIME type
+    const ext = path.extname(resolved);
     const mimeTypes: Record<string, string> = {
       '.html': 'text/html',
       '.js': 'application/javascript',
@@ -808,14 +1212,17 @@ if (fs.existsSync(distDir)) {
       '.json': 'application/json',
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
       '.gif': 'image/gif',
       '.svg': 'image/svg+xml',
-      '.woff2': 'font/woff2',
+      '.ico': 'image/x-icon',
       '.woff': 'font/woff',
+      '.woff2': 'font/woff2',
+      '.ttf': 'font/ttf',
     };
-    ctx.type = mimeTypes[ext] || 'application/octet-stream';
-    ctx.body = fs.createReadStream(filePath);
+
+    const mimeType = mimeTypes[ext] || 'application/octet-stream';
+    ctx.set('Content-Type', mimeType);
+    ctx.body = fs.createReadStream(resolved);
   });
 }
 

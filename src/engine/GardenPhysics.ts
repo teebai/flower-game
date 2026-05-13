@@ -78,8 +78,8 @@ const DEFAULT_CONFIG: GardenPhysicsConfig = {
   restitution: 0.0,
   flowerRadius: 22,                // slightly larger (was 18 — too crowded)
   density: 0.001,
-  hoverWiggleSpeed: 4.0,
-  hoverScaleTarget: 1.2,
+  hoverWiggleSpeed: 0,
+  hoverScaleTarget: 1.0,
   hoverScaleLerp: 0.08,
   windBezierDuration: 1400,
 };
@@ -184,14 +184,9 @@ export class GardenPhysicsWorld {
       // ── 4. Angular damping (kill spin) ──
       Body.setAngularVelocity(body, body.angularVelocity * config.damping);
 
-      // ── 5. Hover wiggle + scale animation ──
-      if (flower.isHovered) {
-        flower.scale += (config.hoverScaleTarget - flower.scale) * config.hoverScaleLerp;
-        const wiggle = Math.sin(t * config.hoverWiggleSpeed) * 0.12;
-        Body.setAngularVelocity(body, wiggle);
-      } else {
-        flower.scale += (1.0 - flower.scale) * config.hoverScaleLerp;
-      }
+      // ── 5. Hover scale animation (no wiggle — CSS handles visuals) ──
+      const targetScale = flower.isHovered ? config.hoverScaleTarget : 1.0;
+      flower.scale += (targetScale - flower.scale) * config.hoverScaleLerp;
 
       // ── 6. Hard ellipse boundary clamp ──
       const { rx, ry } = config.gardenRadius;

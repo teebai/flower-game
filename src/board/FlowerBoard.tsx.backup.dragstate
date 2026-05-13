@@ -30,9 +30,6 @@ import { getActionAnimation } from '../cards/actionAnimations';
 import { DisconnectOverlay } from './components/DisconnectOverlay';
 import { PlayerInfoModal } from './components/PlayerInfoModal';
 import { GameModals } from './components/GameModals';
-import { ActionZone } from './components/ActionZone';
-import { CounterWindow } from './components/CounterWindow';
-import { GameMenu } from './components/GameMenu';
 import { BlessingPanel } from './components/BlessingPanel';
 
 const MOVE_LABELS: Record<string, string> = {
@@ -450,17 +447,6 @@ type DragPreview = {
   height: number;
 };
 
-type DragTarget = { playerId: string; setId?: string; flowerId?: string };
-
-type DragState =
-  | { mode: 'idle'; hoveredPlayer?: string; hoveredSet?: string }
-  | { mode: 'picking-card'; cardId?: string; hoveredPlayer?: string; hoveredSet?: string }
-  | { mode: 'picking-target'; cardId: string; windExtraTargets?: string[]; hoveredPlayer?: string; hoveredSet?: string }
-  | { mode: 'dragging'; cardId: string; x: number; y: number; width: number; height: number; hoveredPlayer?: string; hoveredSet?: string }
-  | { mode: 'hovering'; cardId: string; target: DragTarget; x: number; y: number; width: number; height: number; hoveredPlayer?: string; hoveredSet?: string }
-  | { mode: 'selecting'; cardId: string; targets: DragTarget[]; windExtraTargets?: string[]; hoveredPlayer?: string; hoveredSet?: string }
-  | { mode: 'confirming'; cardId: string; targets?: DragTarget[]; windExtraTargets?: string[]; doubleHappinessMode?: 'take' | 'give'; hoveredPlayer?: string; hoveredSet?: string };
-
 const CARD_GESTURE_DEADZONE_PX = 9;
 const CARD_PLAY_LIFT_PX = 14;
 const CARD_SCROLL_INTENT_PX = 14;
@@ -719,34 +705,22 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Selection state ──────────────────────────────────────────
-  const [dragState, setDragState] = useState<DragState>({ mode: 'idle' });
-  const activeCardId = dragState.mode !== 'idle' ? dragState.cardId : undefined;
-  const isDragging = dragState.mode === 'dragging' || dragState.mode === 'hovering';
-  const dragPreview = isDragging ? { cardId: dragState.cardId, x: dragState.x, y: dragState.y, width: dragState.width, height: dragState.height } : null;
-  const dragTarget = dragState.mode === 'hovering' ? dragState.target : null;
-  const hoveredPlayerId = dragState.hoveredPlayer ?? null;
-  const hoveredSetId = dragState.hoveredSet ?? null;
-  const windExtraTargetSets = dragState.mode === 'picking-target' || dragState.mode === 'selecting' || dragState.mode === 'confirming' ? dragState.windExtraTargets ?? [] : [];
-  const setWindExtraTargetSets = (next: string[] | ((prev: string[]) => string[])) => {
-    setDragState(prev => {
-      if (prev.mode !== 'picking-target' && prev.mode !== 'selecting' && prev.mode !== 'confirming') return prev;
-      const nextValue = typeof next === 'function' ? next(prev.windExtraTargets ?? []) : next;
-      return { ...prev, windExtraTargets: nextValue };
-    });
-  };
+  const [step, setStep]   = useState<'menu' | 'pick-card' | 'pick-target' | 'confirm'>('menu');
   const [moveType, setMoveType]   = useState('');
   const [pickedCards, setPickedCards] = useState<string[]>([]);
   const [targetPlayer, setTargetPlayer] = useState('');
   const [targetSet, setTargetSet]     = useState('');
   const [hoverTargetPlayer, setHoverTargetPlayer] = useState('');
   const [hoverTargetSet, setHoverTargetSet] = useState('');
+  const [hoveredPlayerId, setHoveredPlayerId] = useState<string | null>(null);
+  const [hoveredSetId, setHoveredSetId] = useState<string | null>(null);
   const lastDropRef = useRef<{ playerId: string; setId: string; x: number; y: number; time: number } | null>(null);
   const [chosenColor, setChosenColor] = useState('');
   const [discardChoice, setDiscardChoice] = useState('');
   const [windAttackDoubleMode, setWindAttackDoubleMode] = useState(false);
+  const [windExtraTargetSets, setWindExtraTargetSets] = useState<string[]>([]);
   const [doubleHappinessMode, setDoubleHappinessMode] = useState<'take' | 'give' | ''>('');
   const [counterPickedCards, setCounterPickedCards] = useState<string[]>([]);
-  const [counterTimeRemaining, setCounterTimeRemaining] = useState(30);
   const [error, setError] = useState('');
 
   const [blessingStep, setBlessingStep] = useState<'pick' | 'arrange'>('pick');
@@ -754,7 +728,11 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const [blessingArranged, setBlessingArranged] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [windFlights, setWindFlights] = useState<import('./WindPathCanvas').WindFlight[]>([]);
+  const [pointerDragActive, setPointerDragActive] = useState(false);
+  const [armedCardId, setArmedCardId] = useState<string | null>(null);
   const [arenaLogToast, setArenaLogToast] = useState<{ key: string; text: string } | null>(null);
   const [activeAnimation, setActiveAnimation] = useState<{ name: PowerCardName; phase: 'cast' | 'success' | 'win'; targetPlayerId?: string } | null>(null);
 
@@ -818,7 +796,6 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const arenaZoomRef = useRef(arenaZoom);
   const arenaTouchSessionRef = useRef<ArenaTouchSession | null>(null);
   const dragSessionRef = useRef<PointerDragSession | null>(null);
-  const pointerDragActive = dragSessionRef.current !== null;
   const dragPreviewFrameRef = useRef<number | null>(null);
   const pendingDragPreviewRef = useRef<DragPreview | null>(null);
   const proximityFrameRef = useRef<number | null>(null);
@@ -1025,7 +1002,8 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   function clearDropHover() {
     setHoverTargetPlayer('');
     setHoverTargetSet('');
-    setDragState(prev => ({ ...prev, hoveredPlayer: undefined, hoveredSet: undefined }));
+    setHoveredPlayerId(null);
+    setHoveredSetId(null);
   }
 
   function scheduleDragPreview(next: DragPreview | null) {
@@ -1033,9 +1011,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     if (dragPreviewFrameRef.current !== null) return;
     dragPreviewFrameRef.current = window.requestAnimationFrame(() => {
       dragPreviewFrameRef.current = null;
-      const p = pendingDragPreviewRef.current;
-      if (!p) return;
-      setDragState(prev => prev.mode !== 'dragging' && prev.mode !== 'hovering' ? prev : { ...prev, x: p.x, y: p.y, width: p.width, height: p.height });
+      setDragPreview(pendingDragPreviewRef.current);
     });
   }
 
@@ -1071,7 +1047,9 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       dragPreviewFrameRef.current = null;
     }
     pendingDragPreviewRef.current = null;
-    setDragState(prev => prev.mode === 'dragging' ? { mode: 'idle' } : prev);
+    setDragPreview(null);
+    setDraggingCardId(null);
+    clearDropHover();
     clearProximity();
   }
 
@@ -1128,10 +1106,12 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   }
 
   function resetAll() {
-    setDragState({ mode: 'idle' }); setMoveType(''); setPickedCards([]);
-    setTargetPlayer(''); setTargetSet(''); clearDropHover(); setChosenColor(''); setDiscardChoice(''); setWindAttackDoubleMode(false); setDoubleHappinessMode(''); setError('');
+    setStep('menu'); setMoveType(''); setPickedCards([]);
+    setTargetPlayer(''); setTargetSet(''); setWindExtraTargetSets([]); clearDropHover(); setChosenColor(''); setDiscardChoice(''); setWindAttackDoubleMode(false); setDoubleHappinessMode(''); setError('');
     dragSessionRef.current = null;
+    setPointerDragActive(false);
     setHandInfoCardId(null);
+    setArmedCardId(null); clearDragState();
   }
 
   function resetBlessing() {
@@ -1152,13 +1132,15 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     setPickedCards([tradeCard.id]);
     setTargetPlayer(targetPlayerId);
     setTargetSet('');
+    setWindExtraTargetSets([]);
     setChosenColor('');
     setDiscardChoice('');
     setDoubleHappinessMode('');
     setError('');
+    setArmedCardId(tradeCard.id);
     setHandInfoCardId(null);
     clearDragState();
-    setDragState({ mode: targetPlayerId ? 'picking-card' : 'picking-target', cardId: tradeCard.id });
+    setStep(targetPlayerId ? 'pick-card' : 'pick-target');
   }
 
   function moveBlessingCard(idx: number, dir: -1 | 1) {
@@ -1191,7 +1173,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const me = G.players.find(p => p.id === playerID);
 
   // ── Garden hover level (for 3-level hover: flower → set → player) ──
-  const activeGardenCardId = activeCardId;
+  const activeGardenCardId = draggingCardId ?? armedCardId;
 
   // ── Hover targeting mode based on dragged card type ─────────
   const hoverMode = (() => {
@@ -1259,24 +1241,6 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     ? counterStartedAt + (counterTimeLimitSec! * 1000)
     : turnStartedAt + (turnTimeLimitSec * 1000);
   const turnRemainingSec = isGameOver ? 0 : Math.max(0, Math.ceil((turnDeadlineMs - finalClockMs) / 1000));
-
-  // Counter window countdown timer
-  useEffect(() => {
-    if (isCounter && amTarget && inStage && !G.pendingAction?.selectionKind) {
-      setCounterTimeRemaining(30);
-      const interval = setInterval(() => {
-        setCounterTimeRemaining(prev => {
-          if (prev <= 1) {
-            clearInterval(interval);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => clearInterval(interval);
-    }
-  }, [isCounter, amTarget, inStage, G.pendingAction?.selectionKind]);
-
   const totalTimerStartMs = G.gameStartedAt && G.gameStartedAt > 0 ? G.gameStartedAt : turnStartedAt;
   const totalElapsedSec = matchResult
     ? matchResult.durationSec
@@ -1424,13 +1388,14 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     return fallbackSet?.id ?? '';
   }
   const tetherLine = useMemo(() => {
+    const sourceId = draggingCardId || armedCardId;
     const targetId = activeGardenPlayerId || targetPlayer;
-    if (!activeCardId || !targetId) return null;
+    if (!sourceId || !targetId) return null;
     const targetEl = gardenRefs.current[targetId];
     if (!targetEl) return null;
     const sourceRect = dragPreview
       ? { left: dragPreview.x, top: dragPreview.y, width: dragPreview.width, height: dragPreview.height }
-      : handCardRefs.current[activeCardId]?.getBoundingClientRect();
+      : handCardRefs.current[sourceId]?.getBoundingClientRect();
     if (!sourceRect) return null;
     const t = targetEl.getBoundingClientRect();
     return {
@@ -1439,7 +1404,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       x2: t.left + (t.width / 2),
       y2: t.top + (t.height / 2),
     };
-  }, [dragPreview, activeCardId, activeGardenPlayerId, targetPlayer, G.players.length, G.log.length]);
+  }, [dragPreview, draggingCardId, armedCardId, activeGardenPlayerId, targetPlayer, G.players.length, G.log.length]);
 
   function hitTestGardenDrop(clientX: number, clientY: number): GardenDropHit | null {
     for (const [key, setEl] of Object.entries(gardenSetRefs.current)) {
@@ -1461,6 +1426,20 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     return null;
   }
 
+  function updateDragHover(clientX: number, clientY: number) {
+    const hit = hitTestGardenDrop(clientX, clientY);
+    if (!hit) {
+      clearDropHover();
+      return null;
+    }
+    setHoverTargetPlayer(hit.playerId);
+    setHoverTargetSet(hit.setId);
+    // Link drag target to visual flower hover effects
+    setHoveredPlayerId(hit.playerId);
+    setHoveredSetId(hit.setId || null);
+    return hit;
+  }
+
   function defendWithWind(count: number) {
     if (!isWindCounterWindow) return;
     const availableWind = myHand.filter(entry => isPower(entry, 'wind'));
@@ -1470,71 +1449,6 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     }
     setError('');
     runMove(() => m.counterWind(...availableWind.slice(0, count).map(card => card.id)));
-  }
-
-  async function handleKick(targetPlayerID: string) {
-    if (!matchCtx) return;
-    const { matchID, playerID, credentials, server } = matchCtx;
-    if (!playerID || !credentials) return;
-    try {
-      const res = await fetch(`${server}/games/flower-game/${encodeURIComponent(matchID)}/kick`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerID, targetPlayerID, credentials }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Kick failed' }));
-        setError(data.error || `Kick failed (${res.status})`);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Kick failed');
-    }
-  }
-
-  async function handleStart() {
-    if (!matchCtx) return;
-    const { matchID, playerID, credentials, server } = matchCtx;
-    if (!playerID || !credentials) return;
-    try {
-      const res = await fetch(`${server}/games/flower-game/${encodeURIComponent(matchID)}/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerID, credentials }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Start failed' }));
-        setError(data.error || `Start failed (${res.status})`);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Start failed');
-    }
-  }
-
-  async function handleLeave() {
-    const ctx = matchCtx;
-    if (!ctx) {
-      return;
-    }
-    const { matchID, playerID, credentials, server } = ctx;
-    if (!playerID || !credentials) {
-      ctx.onLeave?.();
-      return;
-    }
-    try {
-      const res = await fetch(`${server}/games/flower-game/${encodeURIComponent(matchID)}/leave`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerID, credentials }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Leave failed' }));
-        setError(data.error || `Leave failed (${res.status})`);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Leave failed');
-    } finally {
-      ctx.onLeave?.();
-    }
   }
 
   function startCardPointerSession(cardId: string, event: React.PointerEvent<HTMLDivElement>) {
@@ -1561,6 +1475,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
     setHandInfoCardId(null);
+    setPointerDragActive(true);
   }
 
   function handleHandCardClick(cardId: string) {
@@ -1569,11 +1484,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       return;
     }
     setError('');
-    setDragState(prev => {
-      if (prev.mode !== 'idle' && prev.cardId === cardId) return { mode: 'idle' };
-      if (prev.mode === 'idle') return { mode: 'picking-card', cardId };
-      return { ...prev, cardId };
-    });
+    setArmedCardId(prev => prev === cardId ? null : cardId);
     if (myTurn) {
       setHandInfoCardId(null);
       return;
@@ -1666,52 +1577,58 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     setPickedCards([card.id]);
     setTargetPlayer(stagedTargetPlayerId);
     setTargetSet(resolvedTargetSetId);
+    setWindExtraTargetSets([]);
     setChosenColor('');
     setDiscardChoice('');
     setDoubleHappinessMode('');
     setError('');
+    setArmedCardId(card.id);
 
     if (isFlower(card)) {
-      setDragState({ mode: 'confirming', cardId: card.id });
+      setStep('confirm');
       clearDragState();
+      setArmedCardId(null);
       return;
     }
 
     if (nextMove === 'playBee') {
-      setDragState({ mode: 'picking-card', cardId: card.id });
+      setStep('pick-card');
       clearDragState();
       return;
     }
 
     if (nextMove === 'tradePresent') {
-      setDragState({ mode: targetPlayerId ? 'picking-card' : 'picking-target', cardId: card.id, windExtraTargets: [] });
+      setStep(targetPlayerId ? 'pick-card' : 'pick-target');
       clearDragState();
       return;
     }
 
     if (nextMove === 'doubleHappiness') {
-      setDragState({ mode: 'picking-target', cardId: card.id, windExtraTargets: [] });
+      setStep('pick-target');
       clearDragState();
       return;
     }
 
     if (moveRequiresTargetSet(nextMove) && !resolvedTargetSetId) {
-      setDragState({ mode: 'picking-target', cardId: card.id, windExtraTargets: [] });
+      setStep('pick-target');
       clearDragState();
       return;
     }
 
     if (nextMove === 'doubleHappinessTake' || nextMove === 'tradeFate' || nextMove === 'letGo' || nextMove === 'playSeason' || nextMove === 'playEclipse' || nextMove === 'playGreatReset' || nextMove === 'playWindSingle' || nextMove === 'playBug' || nextMove === 'naturalDisaster') {
-      setDragState({ mode: 'confirming', cardId: card.id });
+      setStep('confirm');
       clearDragState();
+      setArmedCardId(null);
       return;
     }
 
-    setDragState({ mode: 'confirming', cardId: card.id });
+    setStep('confirm');
     clearDragState();
+    setArmedCardId(null);
   }
 
   function plantCardOntoGarden(targetPlayerId: string, targetSetId: string | '') {
+    const activeCardId = draggingCardId ?? armedCardId;
     if (!activeCardId) return;
     stagePlayFromCard(activeCardId, targetPlayerId, targetSetId);
   }
@@ -1927,11 +1844,13 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         if (session.mode === 'pending') return;
         if (session.mode === 'scroll') {
           dragSessionRef.current = null;
+          setPointerDragActive(false);
           return;
         }
         session.dragging = true;
         if (session.mode === 'play') {
-          setDragState({ mode: 'dragging', cardId: session.cardId, x: event.clientX - session.offsetX, y: event.clientY - session.offsetY, width: session.width, height: session.height });
+          setDraggingCardId(session.cardId);
+          setArmedCardId(session.cardId);
         } else {
           reorderHandCard(session.cardId, event.clientX);
         }
@@ -1951,17 +1870,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         width: session.width,
         height: session.height,
       });
-      const hit = hitTestGardenDrop(event.clientX, event.clientY);
-      if (hit) {
-        setDragState(prev => prev.mode === 'dragging' || prev.mode === 'hovering'
-          ? { mode: 'hovering', cardId: session.cardId, target: { playerId: hit.playerId, setId: hit.setId }, x: event.clientX - session.offsetX, y: event.clientY - session.offsetY, width: session.width, height: session.height, hoveredPlayer: hit.playerId, hoveredSet: hit.setId || undefined }
-          : prev);
-      } else {
-        setDragState(prev => prev.mode === 'hovering'
-          ? { mode: 'dragging', cardId: session.cardId, x: event.clientX - session.offsetX, y: event.clientY - session.offsetY, width: session.width, height: session.height }
-          : prev);
-        clearDropHover();
-      }
+      updateDragHover(event.clientX, event.clientY);
       scheduleProximityUpdate(event.clientX, event.clientY);
     };
 
@@ -1974,6 +1883,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       const endedInReorder = session.mode === 'reorder' && wasDragging;
 
       dragSessionRef.current = null;
+      setPointerDragActive(false);
       clearDragState();
 
       if (!wasDragging) return;
@@ -1996,44 +1906,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             time: Date.now(),
           };
         }
-        const card = me?.hand.find(c => c.id === session.cardId);
-        const moveType = card ? moveTypeFromCard(card, dropTarget.playerId) : null;
-        const isSimple = moveType && ['plantOwn', 'plantOpponent', 'playSeason', 'playEclipse', 'playGreatReset', 'letGo', 'naturalDisaster'].includes(moveType);
-        if (isSimple && card) {
-          // Execute simple moves immediately
-          const resolvedTargetSet = isFlower(card)
-            ? resolvePlantTargetSetId(card.id, dropTarget.playerId, dropTarget.setId || '')
-            : moveRequiresTargetSet(moveType)
-              ? (dropTarget.setId || '')
-              : '';
-          switch (moveType) {
-            case 'plantOwn':
-            case 'plantOpponent':
-              runMove(() => m.plantFlower(card.id, dropTarget.playerId, resolvedTargetSet));
-              break;
-            case 'playSeason': {
-              const seasonName = (!isFlower(card) && card.kind === 'power') ? card.name : 'spring';
-              runMoveWithAnim(() => m.playSeason(card.id), { name: seasonName as PowerCardName, phase: 'cast' });
-              break;
-            }
-            case 'playEclipse':
-              runMoveWithAnim(() => m.playEclipse(card.id), { name: 'eclipse', phase: 'cast' });
-              break;
-            case 'playGreatReset':
-              runMoveWithAnim(() => m.playGreatReset(card.id), { name: 'great_reset', phase: 'cast' });
-              break;
-            case 'letGo':
-              runMoveWithAnim(() => m.letGo(card.id), { name: 'let_go', phase: 'cast' });
-              break;
-            case 'naturalDisaster':
-              runMoveWithAnim(() => m.naturalDisaster(card.id, dropTarget.playerId, resolvedTargetSet), { name: 'natural_disaster', phase: 'cast', targetPlayerId: dropTarget.playerId });
-              break;
-          }
-          resetAll();
-        } else {
-          // Complex move — stage for confirmation
-          stagePlayFromCard(session.cardId, dropTarget.playerId, dropTarget.setId || '');
-        }
+        stagePlayFromCard(session.cardId, dropTarget.playerId, dropTarget.setId);
       }
     };
 
@@ -2459,7 +2332,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     }
     // Multiple cards — fall back to pick-card step
     setMoveType(type);
-    setDragState(prev => ({ ...prev, mode: 'picking-card' }) as DragState);
+    setStep('pick-card');
   }
   function relevantCards(type: string): Card[] {
     if (!me) return [];
@@ -2554,14 +2427,14 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const moveInfo = moveDetails(effectiveMoveType);
 
   useEffect(() => {
-    if (dragState.mode !== 'picking-target' || effectiveMoveType !== 'playWindDouble' || !targetPlayer) return;
+    if (step !== 'pick-target' || effectiveMoveType !== 'playWindDouble' || !targetPlayer) return;
     const sheet = actionSheetRef.current;
     if (!sheet) return;
     const raf = window.requestAnimationFrame(() => {
       sheet.scrollTo({ top: 0, behavior: 'smooth' });
     });
     return () => window.cancelAnimationFrame(raf);
-  }, [dragState.mode, effectiveMoveType, targetPlayer]);
+  }, [step, effectiveMoveType, targetPlayer]);
 
   function dispatch() {
     setError('');
@@ -2803,17 +2676,44 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       }
 
       return (
-        <CounterWindow
-          isVisible={true}
-          pendingAction={pa}
-          attackedGardenSet={attackedGardenSet}
-          myHand={myHand}
-          timeRemaining={counterTimeRemaining}
-          timeLimit={30}
-          onAllow={() => runMove(() => m.allowAction())}
-          onCounterWind={(count) => defendWithWind(count)}
-          onCounterDivine={(cardId) => runMove(() => m.counterDivine(cardId))}
-        />
+        <div style={{ background: '#2d1b4e', borderRadius: 12, padding: 16, marginTop: 12 }}>
+          <h3 style={{ color: '#e94560', marginBottom: 8 }}>⚡ Counter Window</h3>
+          <p style={{ color: '#ccc', fontSize: 13, marginBottom: 12 }}>
+            <b>{attacker}</b> played <b>{pa.original.type.replace(/_/g,' ')}</b> on you.
+          </p>
+          {pa.original.targetSetId && (
+            <p style={{ color: '#ffcc80', fontSize: 12, marginBottom: 12 }}>
+              Targeted set: <b>{attackedSetLabel}</b>
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button style={btn('#555')} onClick={() => runMove(() => m.allowAction())}>✅ Allow</button>
+            {isWindCounterWindow && myWind.length >= 1 && (
+              <>
+                <button
+                  style={btn('#1e6091')}
+                  onClick={() => defendWithWind(1)}
+                >
+                  💨 Use 1 Wind Card
+                </button>
+                {myWind.length >= 2 && (
+                  <button
+                    style={btn('#1e6091')}
+                    onClick={() => defendWithWind(2)}
+                  >
+                    💨💨 Use 2 Wind Cards
+                  </button>
+                )}
+              </>
+            )}
+            {myDP.length > 0 && (
+              <button style={btn('#7b2d8b')}
+                onClick={() => runMove(() => m.counterDivine(myDP[0].id))}>
+                🛡️ Divine Protection (coin flip)
+              </button>
+            )}
+          </div>
+        </div>
       );
     }
 
@@ -2883,7 +2783,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
 
     if (G.phase !== 'action') return null;
 
-    if (dragState.mode === 'idle') {
+    if (step === 'menu') {
       const hand = me?.hand ?? [];
       const has = (name: string) => hand.some(c => isPower(c, name));
       const hasFlower = hand.some(isFlower);
@@ -2896,23 +2796,23 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             </span>}
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '4px 0' }}>
-            {hasFlower && <button style={btn()} onClick={() => { setMoveType('plantOwn'); setDragState({ mode: 'picking-card' }); }}>🌱 Plant (own)</button>}
-            {hasFlower && opponents.length > 0 && <button style={btn()} onClick={() => { setMoveType('plantOpponent'); setDragState({ mode: 'picking-card' }); }}>🌿 Plant (opponent)</button>}
-            {has('wind') && <button style={btn()} onClick={() => { setMoveType('playWindSingle'); setDragState({ mode: 'picking-card' }); }}>💨 Wind ×1</button>}
-            {has('bug') && <button style={btn()} onClick={() => { setMoveType('playBug'); setDragState({ mode: 'picking-card' }); }}>🐛 Bug</button>}
-            {has('bee') && <button style={btn()} onClick={() => { setMoveType('playBee'); setDragState({ mode: 'picking-card' }); }}>🐝 Bee</button>}
-            {has('double_happiness') && <button style={btn()} onClick={() => { setMoveType('doubleHappiness'); setDragState({ mode: 'picking-card' }); }}>🎉 Double Happiness</button>}
+            {hasFlower && <button style={btn()} onClick={() => { setMoveType('plantOwn'); setStep('pick-card'); }}>🌱 Plant (own)</button>}
+            {hasFlower && opponents.length > 0 && <button style={btn()} onClick={() => { setMoveType('plantOpponent'); setStep('pick-card'); }}>🌿 Plant (opponent)</button>}
+            {has('wind') && <button style={btn()} onClick={() => { setMoveType('playWindSingle'); setStep('pick-card'); }}>💨 Wind ×1</button>}
+            {has('bug') && <button style={btn()} onClick={() => { setMoveType('playBug'); setStep('pick-card'); }}>🐛 Bug</button>}
+            {has('bee') && <button style={btn()} onClick={() => { setMoveType('playBee'); setStep('pick-card'); }}>🐝 Bee</button>}
+            {has('double_happiness') && <button style={btn()} onClick={() => { setMoveType('doubleHappiness'); setStep('pick-card'); }}>🎉 Double Happiness</button>}
             {has('trade_present') && <button style={btn()} onClick={() => beginTradePresentFlow()}>🎁 Trade Present</button>}
-            {has('trade_fate') && <button style={btn()} onClick={() => { setMoveType('tradeFate'); setDragState({ mode: 'picking-card' }); }}>🔀 Trade Fate</button>}
+            {has('trade_fate') && <button style={btn()} onClick={() => { setMoveType('tradeFate'); setStep('pick-card'); }}>🔀 Trade Fate</button>}
             {has('let_go') && <button style={btn()} onClick={() => playDirect('letGo')}>✋ Let Go</button>}
             {['spring','summer','autumn','winter'].some(s => has(s)) && (
               <button style={btn()} onClick={() => playDirect('playSeason')}>🌸 Season</button>
             )}
-            {has('natural_disaster') && hasNaturalDisasterTarget && <button style={btn()} onClick={() => { setMoveType('naturalDisaster'); setDragState({ mode: 'picking-card' }); }}>🌪️ Nat. Disaster</button>}
+            {has('natural_disaster') && hasNaturalDisasterTarget && <button style={btn()} onClick={() => { setMoveType('naturalDisaster'); setStep('pick-card'); }}>🌪️ Nat. Disaster</button>}
             {has('eclipse') && <button style={btn()} onClick={() => playDirect('playEclipse')}>🌑 Eclipse</button>}
             {has('great_reset') && <button style={btn()} onClick={() => playDirect('playGreatReset')}>♻️ Great Reset</button>}
             {G.season === 'autumn' && hasFlower && (
-              <button style={btn('#8b4513')} onClick={() => { setMoveType('discardFlower'); setDragState({ mode: 'picking-card' }); }}>🍂 Discard Flower</button>
+              <button style={btn('#8b4513')} onClick={() => { setMoveType('discardFlower'); setStep('pick-card'); }}>🍂 Discard Flower</button>
             )}
             <button style={btn('#333')} onClick={() => runMove(() => m.pass())}>⏩ Pass Turn</button>
           </div>
@@ -2920,7 +2820,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       );
     }
 
-    if (dragState.mode === 'picking-card') {
+    if (step === 'pick-card') {
       const cards = relevantCards(moveType);
       const maxCards = selectionLimit(moveType);
       const helperText =
@@ -3083,10 +2983,10 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             <button style={{ ...btn('#4ecca3', '#1a1a2e'), marginTop: 14 }}
               onClick={() => {
                 if (moveType === 'tradePresent') {
-                  setDragState(prev => ({ ...prev, mode: 'confirming' }) as DragState);
+                  setStep('confirm');
                   return;
                 }
-                needsTargetPlayer ? setDragState(prev => ({ ...prev, mode: 'picking-target' }) as DragState) : setDragState(prev => ({ ...prev, mode: 'confirming' }) as DragState);
+                needsTargetPlayer ? setStep('pick-target') : setStep('confirm');
               }}>
               {moveType === 'tradePresent' ? 'Review trade →' : 'Next →'}
             </button>
@@ -3096,7 +2996,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       );
     }
 
-    if (dragState.mode === 'picking-target') {
+    if (step === 'pick-target') {
       const tgt = G.players.find(p => p.id === targetPlayer);
       const showSetPicker = ['playWindSingle','playWindDouble','playBug','naturalDisaster','playBee'].includes(moveType);
       const validSets = !tgt ? [] : tgt.garden.sets.filter(s => isValidTargetSetForMove(effectiveMoveType, s));
@@ -3130,7 +3030,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             <span style={{ color: '#4ecca3', fontWeight: 700 }}>Select Target</span>
             <button
               style={btn('#333')}
-              onClick={() => moveType === 'tradePresent' ? resetAll() : setDragState(prev => ({ ...prev, mode: 'picking-card' }) as DragState)}
+              onClick={() => moveType === 'tradePresent' ? resetAll() : setStep('pick-card')}
             >
               ← Back
             </button>
@@ -3214,7 +3114,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <button
                         style={btn(canAdvanceFromTarget ? '#4ecca3' : '#333', canAdvanceFromTarget ? '#1a1a2e' : '#fff')}
-                        onClick={() => canAdvanceFromTarget && setDragState(prev => ({ ...prev, mode: 'confirming' }) as DragState)}
+                        onClick={() => canAdvanceFromTarget && setStep('confirm')}
                         disabled={!canAdvanceFromTarget}
                       >
                         Done targeting
@@ -3463,7 +3363,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           {canAdvanceFromTarget && effectiveMoveType !== 'playWindDouble' && (
             <button
               style={btn('#4ecca3', '#1a1a2e')}
-              onClick={() => setDragState(prev => ({ ...prev, mode: moveType === 'tradePresent' ? 'picking-card' : 'confirming' }) as DragState)}
+              onClick={() => setStep(moveType === 'tradePresent' ? 'pick-card' : 'confirm')}
             >
               {moveType === 'tradePresent' ? 'Choose offer →' : 'Next →'}
             </button>
@@ -3473,7 +3373,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       );
     }
 
-    if (dragState.mode === 'confirming') {
+    if (step === 'confirm') {
       const pickedCardObjects = pickedCards
         .map(id => me?.hand.find(c => c.id === id))
         .filter((card): card is Card => !!card);
@@ -3490,6 +3390,51 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         : [];
       return (
         <div style={{ background: '#16213e', borderRadius: 12, padding: 16, marginTop: 12 }}>
+          <h4 style={{ color: '#4ecca3', marginBottom: 10 }}>Confirm Move</h4>
+          <div style={{ background: '#0f3460', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+            <div style={{ color: '#fff', fontWeight: 700, marginBottom: 6 }}>{moveLabel(effectiveMoveType)}</div>
+            <p style={{ color: '#cbd5ff', fontSize: 13, margin: '0 0 8px 0' }}>{moveInfo.summary}</p>
+            <div style={{ color: '#9fb0ff', fontSize: 12, lineHeight: 1.5 }}>
+              Review your choices below, then confirm to send the move.
+            </div>
+          </div>
+          <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>
+            Action: <b>{moveLabel(effectiveMoveType)}</b>
+          </p>
+          <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>
+            Card(s):{' '}
+            <b>
+              {previewCardObjects.map((card, index) => (
+                <span key={card.id}>
+                  {index > 0 ? ', ' : null}
+                  <InlineCardLabel card={card} />
+                </span>
+              ))}
+            </b>
+          </p>
+          {moveType === 'playWindSingle' && canUpgradeSingleWind && (
+            <div style={{ background: '#1a1a2e', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <p style={{ fontSize: 13, color: '#9fb0ff', margin: '0 0 8px 0' }}>
+                Wind mode: <b>{windAttackDoubleMode ? 'Double Wind enabled' : 'Single Wind'}</b>
+                {windAttackDoubleMode && ' · the second Wind card will be used automatically on confirm.'}
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  style={btn(!windAttackDoubleMode ? '#4ecca3' : '#333', !windAttackDoubleMode ? '#1a1a2e' : '#fff')}
+                  onClick={() => setWindAttackDoubleMode(false)}
+                >
+                  💨 Use 1 Wind card
+                </button>
+                <button
+                  style={btn(windAttackDoubleMode ? '#4ecca3' : '#333', windAttackDoubleMode ? '#1a1a2e' : '#fff')}
+                  onClick={() => setWindAttackDoubleMode(true)}
+                >
+                  💨💨 Use 2 Wind cards
+                </button>
+              </div>
+            </div>
+          )}
+          {tname && <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>Target: <b>{tname}</b></p>}
           {moveType === 'tradePresent' && selectedTradePresentOfferCard && (
             <div style={{ background: '#1a1a2e', borderRadius: 10, padding: 12, marginBottom: 10 }}>
               <p style={{ fontSize: 13, color: '#ccc', margin: '0 0 6px 0' }}>
@@ -3658,6 +3603,16 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           {moveType === 'playBee' && !effectiveTargetSetId && <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>Set: <b>start new set</b></p>}
           {chosenColor && <p style={{ fontSize: 13, color: '#ccc', marginBottom: 4 }}>Color: <b>{chosenColor}</b></p>}
           {error && <p style={{ color: '#e94560', fontSize: 13, marginBottom: 8 }}>⚠️ {error}</p>}
+          <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+            <button style={btn('#4ecca3', '#1a1a2e')} onClick={dispatch} disabled={isSubmitting}>✔ Confirm</button>
+            <button
+              style={btn('#555')}
+              onClick={() => setStep(moveType === 'tradePresent' ? 'pick-card' : (needsTargetPlayer ? 'pick-target' : 'pick-card'))}
+            >
+              ← Back
+            </button>
+            <button style={btn('#333')} onClick={resetAll}>✕ Cancel</button>
+          </div>
         </div>
       );
     }
@@ -3677,7 +3632,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   const iAmRoomOwner = !!playerID && G.ownerPlayerId === playerID;
   const roomOwnerName = nameOf(G.players.find(player => player.id === G.ownerPlayerId) ?? null) || 'Room owner';
   const showActionOverlay =
-    (myTurn && dragState.mode !== 'idle' && G.phase === 'action') ||
+    (myTurn && step !== 'menu' && G.phase === 'action') ||
     (myTurn && G.phase === 'blessing') ||
     (isCounter && amTarget && inStage);
   const draggedHandCard = dragPreview ? myHand.find(card => card.id === dragPreview.cardId) ?? null : null;
@@ -3706,10 +3661,9 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         matchCtx={matchCtx}
         nameOf={nameOf}
         isSubmitting={isSubmitting}
-        onStart={handleStart}
+        onStart={() => runMove(() => m.startGame())}
         onReady={() => runMove(() => m.toggleReady())}
-        onLeave={handleLeave}
-        onKick={handleKick}
+        onLeave={() => matchCtx?.onLeave()}
       />
       </div>
     );
@@ -3813,16 +3767,6 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           <span style={{ color: turnRemainingSec > 0 && turnRemainingSec <= 10 ? '#e94560' : theme.muted, fontSize: 11 }}>⏱ {turnTimerLabel}</span>
         </div>
       </header>
-
-      <GameMenu
-        theme={theme}
-        onResume={() => {}}
-        onSettings={() => {}}
-        onRules={() => {}}
-        onBugReport={() => {}}
-        onChangelog={() => {}}
-        onQuit={() => matchCtx?.onLeave?.()}
-      />
 
       {/* ── PLAYFIELD ── */}
       <div className="v2-playfield">
@@ -4075,14 +4019,19 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                             onClick={canDropTarget && activeGardenCardId
                               ? () => stagePlayFromCard(activeGardenCardId, player.id, '')
                               : isMe && myTurn && G.phase === 'action'
-                              ? () => { setMoveType('plantOwn'); setTargetSet(''); setDragState({ mode: 'picking-card' }); }
+                              ? () => { setMoveType('plantOwn'); setTargetSet(''); setStep('pick-card'); }
                               : undefined}>
                             Tap or drop a flower here
                           </div>
                         : <GardenFlowerField
                             sets={player.garden.sets}
                             playerId={player.id}
-                            targetedSetId={dragState.mode === 'hovering' && dragState.target.playerId === player.id ? dragState.target.setId ?? null : null}
+                            hoveredSetId={hoveredSetId}
+                            hoveredPlayerId={hoveredPlayerId}
+                            hoverLevel={hoverLevel}
+                            hoverMode={hoverMode}
+                            isDragActive={activeGardenCardId !== null && canDropTarget}
+                            lastDropRef={lastDropRef}
                             onSetClick={(setId) => {
                               if (canDropTarget && activeGardenCardId) {
                                 stagePlayFromCard(activeGardenCardId, player.id, setId);
@@ -4091,9 +4040,11 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                                 setTargetPlayer(player.id);
                                 setTargetSet(setId);
                                 setMoveType('plantOwn');
-                                setDragState(prev => ({ ...prev, mode: 'picking-card' }) as DragState);
+                                setStep('pick-card');
                               }
                             }}
+                            onSetHover={setHoveredSetId}
+                            onPlayerHover={setHoveredPlayerId}
                             highlightSetId={activeGardenSetId}
                             attackedSetId={player.id === attackedGardenPlayerId ? attackedGardenSetId : undefined}
                             changedSetIds={gardenSettle?.changedSetIds ?? []}
@@ -4102,16 +4053,20 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                       }
                     </div>
                   </div>
-                  {dragState.mode === 'confirming' && targetPlayer === player.id && (
+                  {step === 'confirm' && targetPlayer === player.id && (
                     <div className="garden-quick-confirm" style={{
                       marginTop: 6, padding: '6px 8px', borderRadius: 10,
                       background: theme.panelSoft, border: `1px solid ${theme.accent}`,
-                      display: 'flex', alignItems: 'center',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       gap: 6, flexWrap: 'wrap',
                     }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 10, color: theme.muted, marginBottom: 1 }}>Ready here</div>
                         <div style={{ fontWeight: 800, color: theme.text, fontSize: 11 }}>{moveLabel(moveType)}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button style={btn(theme.accent, '#1a1a2e')} onClick={dispatch} disabled={isSubmitting}>✔</button>
+                        <button style={btn('#555')} onClick={resetAll}>✕</button>
                       </div>
                     </div>
                   )}
@@ -4168,20 +4123,20 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             amTarget={amTarget}
             inStage={inStage}
             nameOf={nameOf}
-            onPlantOwn={() => { setMoveType('plantOwn'); setDragState({ mode: 'picking-card' }); }}
-            onPlantOpponent={() => { setMoveType('plantOpponent'); setDragState({ mode: 'picking-card' }); }}
-            onWind={() => { setMoveType('playWindSingle'); setDragState({ mode: 'picking-card' }); }}
-            onBug={() => { setMoveType('playBug'); setDragState({ mode: 'picking-card' }); }}
-            onBee={() => { setMoveType('playBee'); setDragState({ mode: 'picking-card' }); }}
-            onDoubleHappiness={() => { setMoveType('doubleHappiness'); setDragState({ mode: 'picking-card' }); }}
+            onPlantOwn={() => { setMoveType('plantOwn'); setStep('pick-card'); }}
+            onPlantOpponent={() => { setMoveType('plantOpponent'); setStep('pick-card'); }}
+            onWind={() => { setMoveType('playWindSingle'); setStep('pick-card'); }}
+            onBug={() => { setMoveType('playBug'); setStep('pick-card'); }}
+            onBee={() => { setMoveType('playBee'); setStep('pick-card'); }}
+            onDoubleHappiness={() => { setMoveType('doubleHappiness'); setStep('pick-card'); }}
             onTradePresent={() => beginTradePresentFlow()}
-            onTradeFate={() => { setMoveType('tradeFate'); setDragState({ mode: 'picking-card' }); }}
-            onLetGo={() => { setMoveType('letGo'); setDragState({ mode: 'picking-card' }); }}
-            onSeason={() => { setMoveType('playSeason'); setDragState({ mode: 'picking-card' }); }}
-            onNaturalDisaster={() => { setMoveType('naturalDisaster'); setDragState({ mode: 'picking-card' }); }}
-            onEclipse={() => { setMoveType('playEclipse'); setDragState({ mode: 'picking-card' }); }}
-            onGreatReset={() => { setMoveType('playGreatReset'); setDragState({ mode: 'picking-card' }); }}
-            onDiscardFlower={() => { setMoveType('discardFlower'); setDragState({ mode: 'picking-card' }); }}
+            onTradeFate={() => { setMoveType('tradeFate'); setStep('pick-card'); }}
+            onLetGo={() => { setMoveType('letGo'); setStep('pick-card'); }}
+            onSeason={() => { setMoveType('playSeason'); setStep('pick-card'); }}
+            onNaturalDisaster={() => { setMoveType('naturalDisaster'); setStep('pick-card'); }}
+            onEclipse={() => { setMoveType('playEclipse'); setStep('pick-card'); }}
+            onGreatReset={() => { setMoveType('playGreatReset'); setStep('pick-card'); }}
+            onDiscardFlower={() => { setMoveType('discardFlower'); setStep('pick-card'); }}
             onPass={() => runMove(() => m.pass())}
             onDraw={() => runMove(() => m.pass())}
           />
@@ -4210,14 +4165,14 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
                 <div
                   key={c.id}
                   ref={(node) => { handCardRefs.current[c.id] = node; }}
-                  className={`hand-card-fan ${isDragging && dragState.cardId === c.id ? 'is-drag-origin' : ''}`}
+                  className={`hand-card-fan ${draggingCardId === c.id ? 'is-drag-origin' : ''}`}
                   style={{ transform: `translateY(${Math.abs(i - mid) * 2}px) rotate(${(i - mid) * 4}deg)` }}
                 >
                   <CardChip
                     card={c}
-                    selected={activeCardId === c.id || pickedCards.includes(c.id) || counterPickedCards.includes(c.id)}
+                    selected={armedCardId === c.id || pickedCards.includes(c.id) || counterPickedCards.includes(c.id)}
                     draggable
-                    dragging={isDragging && dragState.cardId === c.id}
+                    dragging={draggingCardId === c.id}
                     onClick={() => handleHandCardClick(c.id)}
                     onPointerDown={(event) => startCardPointerSession(c.id, event)}
                   />
@@ -4226,21 +4181,6 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
             })}
           </div>
         </div>
-
-        {/* ── ACTION ZONE ── */}
-        <ActionZone
-          visible={dragState.mode === 'confirming'}
-          canDouble={effectiveMoveType === 'playWindSingle' || moveType === 'doubleHappiness'}
-          onCancel={resetAll}
-          onConfirm={dispatch}
-          onDouble={() => {
-            if (effectiveMoveType === 'playWindSingle') {
-              setWindAttackDoubleMode(prev => !prev);
-            } else if (moveType === 'doubleHappiness') {
-              setDoubleHappinessMode(prev => prev === 'take' ? 'give' : 'take');
-            }
-          }}
-        />
 
       </div>
 
@@ -4261,7 +4201,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         totalTimerLabel={totalTimerLabel}
         onClose={() => setModalOpen(null)}
         onViewResults={() => setModalOpen('results')}
-        onLeave={handleLeave}
+        onLeave={() => matchCtx?.onLeave()}
       />
       <PlayerInfoModal
         playerId={playerInfoPlayerId}

@@ -43,16 +43,6 @@ export interface UseMatterGardensOptions {
   sets: GardenSet[];
   /** The player whose garden this is */
   playerId: string;
-  /** Currently hovered flower id (if any) */
-  hoveredFlowerId: string | null;
-  /** Currently hovered set id (if any) */
-  hoveredSetId: string | null;
-  /** Currently hovered player id (if any) */
-  hoveredPlayerId: string | null;
-  /** Hover level granularity */
-  hoverLevel: 'flower' | 'set' | 'player' | null;
-  /** Whether a card drag is active (for visual glow state) */
-  isDragActive: boolean;
   /** Total container width in px (used for ellipse sizing) */
   containerWidth: number;
   /** Total container height in px (used for ellipse sizing) */
@@ -72,19 +62,9 @@ export interface UseMatterGardensResult {
   containerH: number;
 }
 
-// ── Visual constants (mirrors useGardenParticles.ts) ────────
-
-const BASE_BRIGHTNESS = 1.12;
-const BASE_SATURATE = 1.22;
-const FLOWER_HOVER_SCALE = 1.5;
-const FLOWER_HOVER_BRIGHTNESS = 1.5;
-const FLOWER_HOVER_SATURATE = 1.4;
-const SET_HOVER_SCALE = 1.5;
-const SET_HOVER_BRIGHTNESS = 1.35;
-const SET_HOVER_SATURATE = 1.3;
-const PLAYER_HOVER_SCALE = 1.5;
-const PLAYER_HOVER_BRIGHTNESS = 1.2;
-const PLAYER_HOVER_SATURATE = 1.25;
+// ── Visual constants ────────
+// Hover visuals are handled by CSS in GardenFlowerField.tsx
+// Physics engine only computes positions.
 
 function flowerSize(color: FlowerColor, isDivineSet: boolean, isSolidSet: boolean): number {
   const base = 48;
@@ -110,11 +90,6 @@ function seededRandom(seed: string): () => number {
 export function useMatterGardens({
   sets,
   playerId,
-  hoveredFlowerId,
-  hoveredSetId,
-  hoveredPlayerId,
-  hoverLevel,
-  isDragActive,
   containerWidth,
   containerHeight,
   changedSetIds = [],
@@ -186,25 +161,7 @@ export function useMatterGardens({
     const allFlowers = sets.flatMap((s) => s.flowers.map((f) => ({ ...f, setId: s.id })));
     const currentIds = allFlowers.map((f) => f.id).sort().join(',');
 
-    if (currentIds === prevFlowerIdsRef.current) {
-      // Still sync hover states even if ids haven't changed
-      world.clearAllHovers();
-      if (hoverLevel === 'flower' && hoveredFlowerId) {
-        world.setFlowerHover(hoveredFlowerId, true);
-      } else if (hoverLevel === 'set' && hoveredSetId) {
-        for (const f of allFlowers) {
-          if (f.setId === hoveredSetId) {
-            world.setFlowerHover(f.id, true);
-          }
-        }
-      } else if (hoverLevel === 'player' && hoveredPlayerId === playerId) {
-        for (const f of allFlowers) {
-          world.setFlowerHover(f.id, true);
-        }
-      }
-      return;
-    }
-
+    if (currentIds === prevFlowerIdsRef.current) return;
     prevFlowerIdsRef.current = currentIds;
 
     const existingIds = new Set(world.getFlowerStates().map((f) => f.id));
@@ -245,7 +202,7 @@ export function useMatterGardens({
         y,
       });
     }
-  }, [sets, playerId, hoveredFlowerId, hoveredSetId, hoveredPlayerId, hoverLevel]);
+  }, [sets, playerId]);
 
   // ── Apply settle pulse to recently-changed sets ─────────────
   useEffect(() => {
@@ -312,25 +269,6 @@ export function useMatterGardens({
         const set = setById.get(s.setId);
         const size = flowerSize(s.color, set?.isDivine ?? false, set?.isSolid ?? false);
 
-        // Determine hover scale/brightness based on hoverLevel
-        let hoverScale = s.scale;
-        let brightness = BASE_BRIGHTNESS;
-        let saturate = BASE_SATURATE;
-
-        if (hoverLevel === 'flower' && hoveredFlowerId === s.id) {
-          hoverScale = Math.max(hoverScale, FLOWER_HOVER_SCALE);
-          brightness = FLOWER_HOVER_BRIGHTNESS;
-          saturate = FLOWER_HOVER_SATURATE;
-        } else if (hoverLevel === 'set' && hoveredSetId === s.setId) {
-          hoverScale = Math.max(hoverScale, SET_HOVER_SCALE);
-          brightness = SET_HOVER_BRIGHTNESS;
-          saturate = SET_HOVER_SATURATE;
-        } else if (hoverLevel === 'player' && hoveredPlayerId === playerId) {
-          hoverScale = Math.max(hoverScale, PLAYER_HOVER_SCALE);
-          brightness = PLAYER_HOVER_BRIGHTNESS;
-          saturate = PLAYER_HOVER_SATURATE;
-        }
-
         return {
           id: s.id,
           setId: s.setId,
@@ -339,9 +277,9 @@ export function useMatterGardens({
           size,
           rotation: (s.angle * 180) / Math.PI,
           color: s.color,
-          hoverScale,
-          brightness,
-          saturate,
+          hoverScale: 1,
+          brightness: 1,
+          saturate: 1,
           opacity: 1,
           isDivine: s.isDivine,
           isSolid: s.isSolid,
@@ -368,14 +306,7 @@ export function useMatterGardens({
       }
       lastTimeRef.current = 0;
     };
-  }, [
-    sets,
-    playerId,
-    hoveredFlowerId,
-    hoveredSetId,
-    hoveredPlayerId,
-    hoverLevel,
-  ]);
+  }, [sets, playerId]);
 
   // ── Cleanup on unmount ─────────────────────────────────────
   useEffect(() => {

@@ -1,88 +1,40 @@
 // ============================================================
-// FLOWER GAME — ASSET PRELOADER
-// Preloads all card art + animation GIFs before game starts.
-// Fixes broken card images on slow connections.
+// ASSET PRELOADER — Fixed implementation
 // ============================================================
 
-import type { Card } from '../types/gameTypes';
-import { cardArtKey } from '../cards/cardArt';
-
-/** Preload a single image */
-function preloadImage(src: string): Promise<void> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve();
-    img.onerror = () => resolve(); // Don't block on one failure
-    img.src = src;
-  });
-}
-
-/** Preload all card images from a hand + gardens */
-export async function preloadGameAssets(props: {
-  flowers: Array<{ color: string; isDivine?: boolean }>;
-  hand: Card[];
-  powerCards: string[]; // animation names
-}): Promise<{ loaded: number; total: number }> {
-  const { flowers, hand, powerCards } = props;
-
-  // Collect unique image URLs
-  const urls = new Set<string>();
-
-  // Flower art
-  for (const f of flowers) {
-    const key = f.isDivine
-      ? 'flower:divine'
-      : `flower:${f.color}`;
-    // We need to resolve the actual URL — this is tricky because
-    // Vite hashes the asset filenames. Instead, we'll use a different
-    // approach: load the module and get the resolved URL.
-  }
-
-  // Hand cards
-  for (const card of hand) {
-    const key = cardArtKey(card);
-    // Same problem — need resolved URL
-  }
-
-  // Power animations
-  for (const name of powerCards) {
-    // Need resolved animation URLs
-  }
-
-  // Since we can't easily get the hashed URLs at runtime,
-  // we'll preload by creating hidden img elements with the
-    // paths that the app actually uses. The browser will cache them.
-  //
-  // Alternative: preload ALL assets in /assets/ folder by fetching them.
-
-  const allAssets: string[] = [];
-
-  // Get all files from the assets directory at build time
-  // We need to import them all at build time to get resolved URLs
-  // This is what we'll do in the actual preloader component
-
-  return { loaded: 0, total: 0 };
-}
-
-/** Preloader that uses Vite's import.meta.glob to get all asset URLs */
 export function getAllAssetUrls(): string[] {
-  // Vite feature: import all images in assets folder
   const flowerModules = import.meta.glob('../assets/flowers/*.gif', { eager: true, query: '?url' });
   const powerModules = import.meta.glob('../assets/powers/*.{gif,png}', { eager: true, query: '?url' });
   const animModules = import.meta.glob('../assets/animations/*.gif', { eager: true, query: '?url' });
 
   const urls: string[] = [];
-  for (const mod of Object.values(flowerModules)) {
-    if (typeof mod === 'string') urls.push(mod);
-    else if (mod && typeof mod.default === 'string') urls.push(mod.default);
-  }
-  for (const mod of Object.values(powerModules)) {
-    if (typeof mod === 'string') urls.push(mod);
-    else if (mod && typeof mod.default === 'string') urls.push(mod.default);
-  }
-  for (const mod of Object.values(animModules)) {
-    if (typeof mod === 'string') urls.push(mod);
-    else if (mod && typeof mod.default === 'string') urls.push(mod.default);
+  const extract = (mod: any): string | null => {
+    if (typeof mod === 'string') return mod;
+    if (mod?.default) return mod.default;
+    return null;
+  };
+
+  for (const modules of [flowerModules, powerModules, animModules]) {
+    for (const mod of Object.values(modules)) {
+      const url = extract(mod);
+      if (url) urls.push(url);
+    }
   }
   return urls;
+}
+
+export async function preloadAssets(): Promise<{ loaded: number; total: number }> {
+  const urls = getAllAssetUrls();
+  if (urls.length === 0) {
+    console.warn('No assets found to preload');
+    return { loaded: 0, total: 0 };
+  }
+  let loaded = 0;
+  await Promise.all(urls.map(src => new Promise<void>((resolve) => {
+    const img = new Image();
+    img.onload = () => { loaded++; resolve(); };
+    img.onerror = () => resolve();
+    img.src = src;
+  })));
+  return { loaded, total: urls.length };
 }

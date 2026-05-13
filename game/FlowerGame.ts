@@ -44,7 +44,7 @@ function finalizeMoveResult(
   ctx: MoveCtx,
   result: ReturnType<typeof engine.applyAction> | ReturnType<typeof engine.allowAction> | ReturnType<typeof engine.autoTimeout>,
   prevIndex: number,
-  rejectLabel: string,
+  _rejectLabel: string,
   shouldEndStage = false
 ): typeof INVALID_MOVE | void {
   const { G, events } = ctx;
@@ -127,6 +127,9 @@ function toggleReadyState(G: GameState, playerID: string): GameState | null {
   const player = G.players.find(entry => entry.id === playerID);
   if (!player || !player.name.trim()) return null;
 
+  // Owner is always ready — cannot toggle off
+  if (playerID === G.ownerPlayerId) return null;
+
   const ready = new Set(G.readyPlayerIds);
   const isReady = ready.has(playerID);
   if (isReady) {
@@ -150,6 +153,10 @@ function buildStartedGame(waitingState: GameState, startedByPlayerId: string): G
     return null;
   }
 
+  // Enough players must be ready (owner is always ready)
+  const readyJoinedCount = joinedPlayers.filter(p => waitingState.readyPlayerIds.includes(p.id)).length;
+  if (readyJoinedCount < waitingState.minPlayers) return null;
+
   const shuffledPlayers = shuffle(joinedPlayers);
   const startedAt = Date.now();
   const startedState = createStartedGame(shuffledPlayers, {
@@ -170,6 +177,24 @@ function buildStartedGame(waitingState: GameState, startedByPlayerId: string): G
     ...startedState.log,
   ];
   return startedState;
+}
+
+function kickPlayerState(G: GameState, playerID: string, targetPlayerID: string): GameState | null {
+  if (G.phase !== 'waiting') return null;
+  if (playerID !== G.ownerPlayerId) return null;
+  if (targetPlayerID === G.ownerPlayerId) return null;
+
+  const target = G.players.find(p => p.id === targetPlayerID);
+  if (!target) return null;
+
+  const nextPlayers = G.players.filter(p => p.id !== targetPlayerID);
+  const nextReady = G.readyPlayerIds.filter(id => id !== targetPlayerID);
+  const nextTurnOrder = G.turnOrder.filter(id => id !== targetPlayerID);
+
+  return addLog(
+    { ...G, players: nextPlayers, readyPlayerIds: nextReady, turnOrder: nextTurnOrder },
+    `${target.name} was kicked from the room.`
+  );
 }
 
 // ── Game Definition ───────────────────────────────────────────
@@ -240,7 +265,7 @@ export const FlowerGame: Game<GameState> = {
       Object.assign(G, nextState);
     },
 
-    startGame({ G, ctx, playerID, events }) {
+    startGame({ G, playerID, events }) {
       if (!playerID) return INVALID_MOVE;
       const nextState = buildStartedGame(G, playerID);
       if (!nextState) return INVALID_MOVE;
@@ -248,6 +273,13 @@ export const FlowerGame: Game<GameState> = {
       if (events) {
         events.endTurn({ next: G.turnOrder[G.currentPlayerIndex] });
       }
+    },
+
+    kickPlayer({ G, playerID }, targetPlayerID: string) {
+      if (!playerID || !targetPlayerID) return INVALID_MOVE;
+      const nextState = kickPlayerState(G, playerID, targetPlayerID);
+      if (!nextState) return INVALID_MOVE;
+      Object.assign(G, nextState);
     },
 
     // ── Blessing ──────────────────────────────────────────────
@@ -311,10 +343,10 @@ export const FlowerGame: Game<GameState> = {
     },
 
     // ── Bug / Bee ─────────────────────────────────────────────
-    playBug({ G, ctx, playerID, events }, cardId: string, targetPlayerId: string, targetSetId: string) {
+    playBug({ G, ctx, playerID, events }, cardId: string, targetPlayerId: string, targetSetId: string, targetCardIds?: string[]) {
       return applyMove({ G, ctx, playerID, events }, {
         type: 'play_bug', playerId: ctx.currentPlayer,
-        cardIds: [cardId], targetPlayerId, targetSetId,
+        cardIds: [cardId], targetPlayerId, targetSetId, targetCardIds,
       });
     },
 

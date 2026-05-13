@@ -209,7 +209,7 @@ function CardTile({ cardKey, art, hasCustom, busy, onUpload, onClear }: CardTile
     <div className="card-tile">
       <div className="preview" aria-label={name}>
         {art
-          ? <img src={art} alt={name} />
+          ? <img src={art} alt={name} draggable={false} />
           : <span className="placeholder" aria-hidden="true">{placeholderEmoji(cardKey)}</span>
         }
       </div>
