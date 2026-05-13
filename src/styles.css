@@ -5012,8 +5012,8 @@ input, select, textarea { font-family: inherit; }
 }
 .v2-hand-row .hand-card-fan { margin-left: 0; margin-right: 5px; scroll-snap-align: center; }
 .v2-hand-row .hand-card-fan:first-child { margin-left: 0; }
-.v2-hand-dock.is-play-turn .v2-hand-row .card-chip.draggable { touch-action: pan-x; }
-.v2-hand-dock.is-reorder-turn .v2-hand-row .card-chip.draggable { touch-action: pan-x; }
+.v2-hand-dock.is-play-turn .v2-hand-row .card-chip.draggable { touch-action: none; }
+.v2-hand-dock.is-reorder-turn .v2-hand-row .card-chip.draggable { touch-action: none; }
 
 .hand-card-info-pop {
   position: absolute;

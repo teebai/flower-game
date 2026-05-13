@@ -471,6 +471,7 @@ type PointerDragMode = 'pending' | 'reorder' | 'play' | 'scroll';
 type PointerDragSession = {
   cardId: string;
   pointerId: number;
+  captureTarget: Element | null;
   startX: number;
   startY: number;
   offsetX: number;
@@ -867,6 +868,27 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
   useEffect(() => {
     arenaZoomRef.current = arenaZoom;
   }, [arenaZoom]);
+
+  useEffect(() => {
+    return () => {
+      const session = dragSessionRef.current;
+      if (session) {
+        try {
+          (session.captureTarget as Element | undefined)?.releasePointerCapture?.(session.pointerId);
+        } catch { /* ignore */ }
+        dragSessionRef.current = null;
+      }
+      if (dragPreviewFrameRef.current !== null) {
+        cancelAnimationFrame(dragPreviewFrameRef.current);
+        dragPreviewFrameRef.current = null;
+      }
+      if (proximityFrameRef.current !== null) {
+        cancelAnimationFrame(proximityFrameRef.current);
+        proximityFrameRef.current = null;
+      }
+      pendingDragPreviewRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const arenaNode = arenaRef.current;
@@ -1548,6 +1570,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
     dragSessionRef.current = {
       cardId,
       pointerId: event.pointerId,
+      captureTarget: event.currentTarget,
       startX: event.clientX,
       startY: event.clientY,
       offsetX: event.clientX - rect.left,
@@ -1559,7 +1582,7 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       mode: 'pending',
       dragging: false,
     };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    (event.currentTarget as Element | undefined)?.setPointerCapture?.(event.pointerId);
     setHandInfoCardId(null);
   }
 
@@ -1973,6 +1996,13 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
       const dropTarget = session.mode === 'play' && wasDragging ? hitTestGardenDrop(event.clientX, event.clientY) : null;
       const endedInReorder = session.mode === 'reorder' && wasDragging;
 
+      // Release pointer capture before clearing state
+      try {
+        (session.captureTarget as Element | undefined)?.releasePointerCapture?.(session.pointerId);
+      } catch {
+        // Ignore release errors (pointer may already be released)
+      }
+
       dragSessionRef.current = null;
       clearDragState();
 
@@ -1983,7 +2013,8 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
         showHandCardInfo(session.cardId);
         return;
       }
-      if (dropTarget) {
+      try {
+        if (dropTarget) {
         // Record drop position for flower spawn animation
         const gardenEl = gardenRefs.current[dropTarget.playerId];
         if (gardenEl) {
@@ -2036,6 +2067,11 @@ export function FlowerBoard({ G, ctx, moves, playerID, playerNames, isConnected 
           // Complex move — stage for confirmation
           stagePlayFromCard(session.cardId, dropTarget.playerId, dropTarget.setId || '');
         }
+      }
+      } catch (err) {
+        console.error('[FlowerBoard] Drop handler error:', err);
+        setError(err instanceof Error ? err.message : 'Drop failed');
+        resetAll();
       }
     };
 
