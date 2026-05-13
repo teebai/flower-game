@@ -1224,6 +1224,20 @@ if (fs.existsSync(distDir)) {
     ctx.set('Content-Type', mimeType);
     ctx.body = fs.createReadStream(resolved);
   });
+
+  // SPA fallback: serve index.html for any non-API route
+  server.app.use(async (ctx, next) => {
+    if (ctx.path.startsWith('/games/') || ctx.path.startsWith('/lobby') || ctx.path === '/version' || ctx.path === '/health') {
+      return next();
+    }
+    const indexPath = path.join(distDir, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      ctx.type = 'html';
+      ctx.body = fs.createReadStream(indexPath);
+    } else {
+      await next();
+    }
+  });
 }
 
 // ── Turn timeout sweeper ─────────────────────────────────────
