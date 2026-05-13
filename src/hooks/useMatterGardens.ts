@@ -174,33 +174,55 @@ export function useMatterGardens({
       }
     }
 
-    // Add new flowers
-    for (const flower of allFlowers) {
-      if (existingIds.has(flower.id)) continue;
+    // Add new flowers with non-overlapping spawn layout
+    // Group by set, place sets in a circle, place flowers within each set
+    const flowersBySet = new Map<string, typeof allFlowers>();
+    for (const f of allFlowers) {
+      if (existingIds.has(f.id)) continue;
+      const arr = flowersBySet.get(f.setId) ?? [];
+      arr.push(f);
+      flowersBySet.set(f.setId, arr);
+    }
 
-      const rng = seededRandom(flower.id);
-      const set = sets.find((s) => s.id === flower.setId);
+    const setEntries = Array.from(flowersBySet.entries());
+    const setCount = setEntries.length;
+    const setSpacing = 55; // distance between set centers
+
+    for (let si = 0; si < setEntries.length; si++) {
+      const [setId, setFlowers] = setEntries[si];
+      const set = sets.find((s) => s.id === setId);
       const isDivine = set?.isDivine ?? false;
       const isSolid = set?.isSolid ?? false;
 
-      // Spawn near centre with random scatter
-      const rx = worldRef.current ? 40 : 20;
-      const ry = worldRef.current ? 30 : 15;
-      const angle = rng() * Math.PI * 2;
-      const dist = rx * (0.05 + rng() * 0.25);
-      const x = Math.cos(angle) * dist;
-      const y = Math.sin(angle) * dist * (ry / rx);
+      // Place set center on a circle around garden center
+      const setAngle = setCount === 1 ? 0 : (si / setCount) * Math.PI * 2;
+      const setDist = setCount === 1 ? 0 : setSpacing * Math.min(setCount, 3);
+      const setCx = Math.cos(setAngle) * setDist;
+      const setCy = Math.sin(setAngle) * setDist;
 
-      world.addFlower({
-        id: flower.id,
-        color: flower.color,
-        setId: flower.setId,
-        playerId,
-        isDivine,
-        isSolid,
-        x,
-        y,
-      });
+      // Place flowers within this set in a small circle
+      const fCount = setFlowers.length;
+      const fRadius = 22; // matches GardenPhysics flowerRadius
+      const clusterRadius = Math.max(fRadius * 1.5, (fCount * fRadius * 2) / (Math.PI * 1.2));
+
+      for (let fi = 0; fi < setFlowers.length; fi++) {
+        const flower = setFlowers[fi];
+        const fAngle = fCount === 1 ? 0 : (fi / fCount) * Math.PI * 2;
+        const fDist = fCount === 1 ? 0 : clusterRadius * (0.3 + 0.7 * (fi / Math.max(fCount - 1, 1)));
+        const x = setCx + Math.cos(fAngle) * fDist;
+        const y = setCy + Math.sin(fAngle) * fDist;
+
+        world.addFlower({
+          id: flower.id,
+          color: flower.color,
+          setId: flower.setId,
+          playerId,
+          isDivine,
+          isSolid,
+          x,
+          y,
+        });
+      }
     }
   }, [sets, playerId]);
 

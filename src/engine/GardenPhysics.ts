@@ -71,12 +71,12 @@ export interface FlowerPhysicsBody {
 const DEFAULT_CONFIG: GardenPhysicsConfig = {
   gardenCenter: { x: 0, y: 0 },
   gardenRadius: { rx: 120, ry: 90 },
-  gravityWellStrength: 0.001,      // stronger center pull
-  sameColorAttraction: 0.003,      // gentler clustering (was 0.008 — too strong)
-  damping: 0.88,                   // more responsive (was 0.95 — too dead)
-  friction: 0.5,                   // less friction (was 0.8 — too sticky)
+  gravityWellStrength: 0.0006,     // gentle center pull
+  sameColorAttraction: 0.001,      // very gentle clustering
+  damping: 0.95,                   // high damping for calm water feel
+  friction: 0.8,                   // higher friction (was 0.5 — too slippery)
   restitution: 0.0,
-  flowerRadius: 22,                // slightly larger (was 18 — too crowded)
+  flowerRadius: 20,                // standard size
   density: 0.001,
   hoverWiggleSpeed: 0,
   hoverScaleTarget: 1.0,
@@ -156,25 +156,6 @@ export class GardenPhysicsWorld {
         }
       }
 
-      // ── 2b. Anti-overlap repulsion ──
-      // Push flowers apart when they get too close (water buoyancy feel)
-      for (const other of bodies) {
-        if (other === body) continue;
-        const odx = other.position.x - body.position.x;
-        const ody = other.position.y - body.position.y;
-        const odist = Math.sqrt(odx * odx + ody * ody) || 1;
-        const minDist = config.flowerRadius * 2.2; // slightly more than 2×radius for spacing
-        if (odist < minDist && odist > 0.1) {
-          // Repulsive force: stronger as they get closer
-          const overlap = minDist - odist;
-          const repelStrength = 0.008 * overlap; // gentle push
-          Body.applyForce(body, body.position, {
-            x: -(odx / odist) * repelStrength * body.mass,
-            y: -(ody / odist) * repelStrength * body.mass,
-          });
-        }
-      }
-
       // ── 3. High linear damping (water-like resistance) ──
       Body.setVelocity(body, {
         x: body.velocity.x * config.damping,
@@ -188,24 +169,24 @@ export class GardenPhysicsWorld {
       const targetScale = flower.isHovered ? config.hoverScaleTarget : 1.0;
       flower.scale += (targetScale - flower.scale) * config.hoverScaleLerp;
 
-      // ── 6. Hard ellipse boundary clamp ──
+      // ── 6. Soft ellipse boundary force ──
+      // Instead of snapping position (which fights the solver),
+      // apply an increasing inward force as flowers approach the edge
       const { rx, ry } = config.gardenRadius;
-      const pad = config.flowerRadius + 2;
+      const pad = config.flowerRadius + 4;
       const maxRx = Math.max(1, rx - pad);
       const maxRy = Math.max(1, ry - pad);
 
       const normalized =
         (body.position.x / maxRx) ** 2 + (body.position.y / maxRy) ** 2;
 
-      if (normalized > 1) {
-        const angle = Math.atan2(body.position.y / maxRy, body.position.x / maxRx);
-        const clampedX = Math.cos(angle) * maxRx * 0.98;
-        const clampedY = Math.sin(angle) * maxRy * 0.98;
-        Body.setPosition(body, { x: clampedX, y: clampedY });
-        // Dampen velocity toward center, don't kill it completely
-        Body.setVelocity(body, {
-          x: body.velocity.x * 0.5,
-          y: body.velocity.y * 0.5,
+      if (normalized > 0.64) {
+        const t = (normalized - 0.64) / 0.36;
+        const angle = Math.atan2(body.position.y, body.position.x);
+        const push = 0.0008 * t * t * body.mass;
+        Body.applyForce(body, body.position, {
+          x: -Math.cos(angle) * push,
+          y: -Math.sin(angle) * push,
         });
       }
     }
