@@ -27,7 +27,7 @@ export function CardChip({ card, selected, onClick, onPointerDown, draggable, dr
   // Defensive: even 'hidden' cards render visibly (social game — no secrets)
   if (card.kind === 'hidden') {
     return (
-      <div className="card-chip no-art" title="Card">
+      <div className="card-chip no-art">
         <span className="emoji">🃏</span>
       </div>
     );
@@ -54,7 +54,7 @@ export function CardChip({ card, selected, onClick, onPointerDown, draggable, dr
       onClick={onClick}
       onPointerDown={onPointerDown}
       data-draggable={draggable ? 'true' : undefined}
-      title={title ?? cardName(c)}
+      title={title}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => {

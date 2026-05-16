@@ -178,7 +178,9 @@ function chooseSevenColorPicks(sets: GardenSet[]): FlowerPick[] | null {
       if (set.isDivine || set.isToken) return;
 
       set.flowers.forEach((flower, flowerIndex) => {
-        if (getFlowerEffectiveColor(flower) !== color || !isNormalTokenCandidate(flower)) return;
+        const effColor = getFlowerEffectiveColor(flower);
+        const isCandidate = isNormalTokenCandidate(flower);
+        if (effColor !== color || !isCandidate) return;
         candidates.push({
           color,
           setId: set.id,
@@ -206,14 +208,16 @@ function chooseSevenColorPicks(sets: GardenSet[]): FlowerPick[] | null {
   return picks;
 }
 
-function mergeDifferentColorFlowers(sets: GardenSet[]): { sets: GardenSet[]; affectedSetId?: string; discardedFlowers?: FlowerCard[] } {
+function mergeDifferentColorFlowers(sets: GardenSet[], maxMerges: number = Infinity): { sets: GardenSet[]; affectedSetId?: string; discardedFlowers?: FlowerCard[] } {
   let workingSets = sets.map(set => ({ ...set, flowers: [...set.flowers] }));
   const discardedFlowers: FlowerCard[] = [];
   let lastTokenId: string | undefined;
+  let mergeCount = 0;
 
-  while (true) {
+  while (mergeCount < maxMerges) {
     const picks = chooseSevenColorPicks(workingSets);
     if (!picks) break;
+    mergeCount++;
 
     const removalMap = new Map<string, Set<number>>();
     const insertionIndex = Math.max(
@@ -260,12 +264,12 @@ function mergeDifferentColorFlowers(sets: GardenSet[]): { sets: GardenSet[]; aff
   return { sets: workingSets, affectedSetId: lastTokenId, discardedFlowers };
 }
 
-export function normalizeGardenTokens(garden: Garden): {
+export function normalizeGardenTokens(garden: Garden, maxMerges: number = Infinity): {
   garden: Garden;
   affectedSetId?: string;
   discardedFlowers?: FlowerCard[];
 } {
-  const merged = mergeDifferentColorFlowers(garden.sets);
+  const merged = mergeDifferentColorFlowers(garden.sets, maxMerges);
   return {
     garden: { sets: merged.sets },
     affectedSetId: merged.affectedSetId,

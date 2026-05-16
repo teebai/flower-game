@@ -11,6 +11,8 @@ import { clearStoredMatch, loadStoredMatch, saveStoredMatch, type MatchInfo } fr
 import { FlowerBoard } from './board/FlowerBoard';
 import { Lobby } from './lobby/Lobby';
 import { MatchContext, type MatchSeatPresence } from './matchContext';
+import DebugLayoutPage from './DebugLayoutPage';
+import DebugArenaPage from './DebugArenaPage';
 
 const SERVER = (() => {
   const host = window.location.hostname;
@@ -209,6 +211,14 @@ export function App() {
       Report Bug
     </a>
   );
+
+  if (window.location.pathname === '/debug-layout') {
+    return <DebugLayoutPage />;
+  }
+
+  if (window.location.pathname === '/debug-arena') {
+    return <DebugArenaPage />;
+  }
 
   if (!match) {
     return (
