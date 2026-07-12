@@ -2,6 +2,45 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Card, GardenSet, PendingAction } from '../../types/gameTypes';
 import { CardChip } from '../../cards/CardChip';
 import { isPower, cardName } from '../../cards/cardUtils';
+import { hapticButton } from '../../utils/haptics';
+import type { FlowerCard } from '../../types/gameTypes';
+
+function resolveSetColor(set: GardenSet): string | null {
+  if (set.flowers.length === 0) return null;
+  const nonWild = set.flowers.filter(f => !f.isWildcard && f.color !== 'rainbow' && f.color !== 'triple_rainbow' && f.color !== 'divine');
+  if (nonWild.length > 0) return nonWild[0].color;
+  const nonTriple = set.flowers.filter(f => f.color !== 'triple_rainbow');
+  if (nonTriple.length > 0) return nonTriple[0].color;
+  return set.flowers[0]?.color ?? null;
+}
+
+function getFlowerEffectiveColor(f: FlowerCard): string | null {
+  if (f.kind !== 'flower') return null;
+  if (f.color === 'divine') return 'divine';
+  if (f.color === 'rainbow' || f.color === 'triple_rainbow') return null;
+  if (f.isWildcard) return f.representedColor ?? null;
+  return f.color;
+}
+
+/** Compute which flowers will be removed if wind is allowed */
+function computeDoomedFlowerIds(set: GardenSet, windCount: number): string[] {
+  const stealCount = windCount >= 2 ? 4 : 1;
+  const sourceColor = resolveSetColor(set);
+  const preferred = set.flowers.filter(
+    f => f.color !== 'triple_rainbow' && sourceColor !== null && getFlowerEffectiveColor(f) === sourceColor,
+  );
+  const otherNonTR = set.flowers.filter(
+    f => f.color !== 'triple_rainbow' && !(sourceColor !== null && getFlowerEffectiveColor(f) === sourceColor),
+  );
+  const tr = set.flowers.filter(f => f.color === 'triple_rainbow');
+  // Removal pops from end of each group
+  const ordered = [
+    ...preferred.reverse(),
+    ...otherNonTR.reverse(),
+    ...tr.reverse(),
+  ];
+  return ordered.slice(0, stealCount).map(f => f.id);
+}
 
 interface CounterWindowProps {
   isVisible: boolean;
@@ -31,24 +70,39 @@ export const CounterWindow = React.memo(function CounterWindow({
   const [isClosing, setIsClosing] = useState(false);
   const autoAllowRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-allow after 3 seconds if no input
+  // Auto-allow after 8 seconds if no input
+  const [autoAllowCountdown, setAutoAllowCountdown] = useState(8);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isVisibleRef = useRef(isVisible);
+  isVisibleRef.current = isVisible;
+
   useEffect(() => {
     if (isVisible && !isClosing) {
+      setAutoAllowCountdown(8);
       autoAllowRef.current = setTimeout(() => {
-        if (isVisible) {
+        // Use ref to avoid stale closure — always check latest isVisible value
+        if (isVisibleRef.current) {
           handleAllow();
         }
-      }, 3000);
+      }, 8000);
+      countdownIntervalRef.current = setInterval(() => {
+        setAutoAllowCountdown(prev => Math.max(0, prev - 1));
+      }, 1000);
     }
     return () => {
       if (autoAllowRef.current) {
         clearTimeout(autoAllowRef.current);
         autoAllowRef.current = null;
       }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
     };
   }, [isVisible, isClosing]);
 
   const handleAllow = () => {
+    hapticButton();
     if (autoAllowRef.current) {
       clearTimeout(autoAllowRef.current);
       autoAllowRef.current = null;
@@ -73,6 +127,7 @@ export const CounterWindow = React.memo(function CounterWindow({
   };
 
   const handleCounterWind = (count: number) => {
+    hapticButton();
     if (autoAllowRef.current) {
       clearTimeout(autoAllowRef.current);
       autoAllowRef.current = null;
@@ -85,6 +140,7 @@ export const CounterWindow = React.memo(function CounterWindow({
   };
 
   const handleCounterDivine = (cardId: string) => {
+    hapticButton();
     if (autoAllowRef.current) {
       clearTimeout(autoAllowRef.current);
       autoAllowRef.current = null;
@@ -109,6 +165,9 @@ export const CounterWindow = React.memo(function CounterWindow({
   const timerUrgent = timeRemaining <= 10;
 
   const targetFlowers = attackedGardenSet?.flowers ?? [];
+  const doomedFlowerIds = isWindAttack && attackedGardenSet
+    ? new Set(computeDoomedFlowerIds(attackedGardenSet, windCount))
+    : new Set<string>();
 
   const animationClass = isClosing ? 'counter-window--exit' : 'counter-window--enter';
 
@@ -131,13 +190,43 @@ export const CounterWindow = React.memo(function CounterWindow({
         {/* Target flowers */}
         {targetFlowers.length > 0 && (
           <div className="counter-window-targets">
-            {targetFlowers.map((flower, i) => (
-              <div key={`${flower.id}-${i}`} className="counter-window-target-flower">
-                <div style={{ width: 80, height: 80 }}>
-                  <CardChip card={flower} small />
+            {targetFlowers.map((flower, i) => {
+              const isDoomed = doomedFlowerIds.has(flower.id);
+              return (
+                <div
+                  key={`${flower.id}-${i}`}
+                  className={`counter-window-target-flower ${isDoomed ? 'is-doomed' : ''}`}
+                  style={isDoomed ? {
+                    opacity: 0.4,
+                    transform: 'scale(0.85)',
+                    filter: 'grayscale(0.7) brightness(0.6)',
+                    transition: 'all 0.25s ease',
+                  } : {
+                    transition: 'all 0.25s ease',
+                  }}
+                >
+                  <div style={{ width: 80, height: 80, position: 'relative' }}>
+                    <CardChip card={flower} small />
+                    {isDoomed && (
+                      <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 32,
+                        fontWeight: 800,
+                        color: '#e94560',
+                        textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+                        pointerEvents: 'none',
+                      }}>
+                        ✕
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -215,7 +304,7 @@ export const CounterWindow = React.memo(function CounterWindow({
             type="button"
             aria-label="Allow"
           >
-            ✓
+            ✓ Allow{autoAllowCountdown > 0 && autoAllowCountdown < 8 ? ` (${autoAllowCountdown}s)` : ''}
           </button>
         </div>
       </div>

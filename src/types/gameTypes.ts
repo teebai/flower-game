@@ -130,6 +130,7 @@ export type ActionType =
   | 'discard_flower'               // Autumn only: discard flower from garden
   | 'blessing_flip'                // trigger coin flip in blessing phase
   | 'blessing_choose'              // pick 2 cards + arrange remaining 5
+  | 'dismiss_coin_flip'            // clear the coin flip overlay
   | 'pass';                        // end turn early
 
 export interface GameAction {
@@ -166,6 +167,19 @@ export interface BlessingState {
   emptyHandMode: boolean;
   /** Coin flip result */
   coinResult: 'heads' | 'tails';
+}
+
+// ── Coin Flip Overlay ───────────────────────────────────────
+
+export interface CoinFlip {
+  /** Player who triggered the flip */
+  playerId: string;
+  /** Why the flip happened */
+  reason: 'blessing' | 'divine_protection';
+  /** Result */
+  result: 'heads' | 'tails';
+  /** Server timestamp when result was revealed (for animation sync) */
+  revealedAt: number;
 }
 
 // ── Pending Action (Counter Window) ──────────────────────────
@@ -235,6 +249,8 @@ export interface GameState {
   pendingAction: PendingAction | null;
   /** Set during the blessing pick step (heads result) */
   blessingState: BlessingState | null;
+  /** Set when a coin flip animation should be shown (blessing or divine protection) */
+  coinFlip: CoinFlip | null;
   /** Millisecond timestamp when the current active response window began */
   turnStartedAt: number;
   /** Server-enforced timer limit in seconds for turns / response windows */

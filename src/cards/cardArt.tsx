@@ -77,7 +77,7 @@ function writeToStorage(data: CardArtStoreData) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch (err) {
-    console.warn('CardArtStore: could not persist to localStorage', err);
+    // localStorage persist failure handled silently
   }
 }
 

@@ -46,7 +46,7 @@ export const MoveButtonBar = React.memo(function MoveButtonBar({
   if (myTurn && G.phase === 'action') {
     return (
       <>
-        <div style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>
+        <div style={{ fontSize: 30, color: '#888', marginBottom: 4 }}>
           Moves: <b style={{ color: '#4ecca3' }}>{G.movesRemaining}</b>
         </div>
         <div className="v2-move-buttons">
@@ -72,21 +72,22 @@ export const MoveButtonBar = React.memo(function MoveButtonBar({
 
   if (G.phase === 'draw' && myTurn) {
     if (drawPhaseSeason === 'winter' && handCount > 0) {
-      return <div style={{ fontSize: 11, color: '#888' }}>❄️ No draw in winter…</div>;
+      return <div style={{ fontSize: 33, color: '#888' }}>❄️ No draw in winter…</div>;
     }
-    return <button className="v2-move-btn" style={{ fontSize: 18 }} title="Draw cards" onClick={onDraw}>🃏</button>;
+    // Draw button moved to center arena indicator
+    return null;
   }
 
   if (G.phase === 'blessing' && myTurn) {
-    return <div style={{ fontSize: 11, color: '#e6c84a' }}>👑 Blessing…</div>;
+    return <div style={{ fontSize: 33, color: '#e6c84a' }}>👑 Blessing…</div>;
   }
 
   if (isCounter && amTarget && inStage) {
-    return <div style={{ fontSize: 11, color: '#e94560' }}>⚡ Counter!</div>;
+    return <div style={{ fontSize: 33, color: '#e94560' }}>⚡ Counter!</div>;
   }
 
   return (
-    <div style={{ fontSize: 11, color: '#888' }}>
+    <div style={{ fontSize: 33, color: '#888' }}>
       {isCounter
         ? `⏳ ${nameOf(G.players.find(p => p.id === G.pendingAction?.targetPlayerId))}…`
         : `⏳ ${nameOf(G.players.find(p => p.id === G.turnOrder[G.currentPlayerIndex]))}`

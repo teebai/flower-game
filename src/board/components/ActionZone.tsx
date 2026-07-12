@@ -3,6 +3,7 @@ import React from 'react';
 interface ActionZoneProps {
   visible: boolean;
   canDouble: boolean;
+  doubleLabel?: string;
   onCancel: () => void;
   onDouble: () => void;
   onConfirm: () => void;
@@ -11,6 +12,7 @@ interface ActionZoneProps {
 export const ActionZone = React.memo(function ActionZone({
   visible,
   canDouble,
+  doubleLabel = '×2',
   onCancel,
   onDouble,
   onConfirm,
@@ -31,10 +33,10 @@ export const ActionZone = React.memo(function ActionZone({
         <button
           className="action-zone-btn action-zone-btn--double"
           onClick={onDouble}
-          aria-label="Double"
+          aria-label={doubleLabel}
           type="button"
         >
-          ×2
+          {doubleLabel}
         </button>
       )}
       <button

@@ -47,10 +47,8 @@ export const DEFAULT_CARD_ART: Partial<Record<CardArtKey, string>> = {
   'flower:divine': divineFlowerGif,
 
   // Fallbacks for flower colors without dedicated art
-  'flower:pink': pinkFlowerGif,
-  'flower:cyan': cyanFlowerGif,
-  'flower:magenta': magentaFlowerGif,
-  'flower:white': whiteFlowerGif,
+  // Note: pink, cyan, magenta, white are not valid FlowerColor values
+  // and are omitted from the default art map.
 
   'power:wind': windGif,
   'power:divine_protection': divineProtectionGif,

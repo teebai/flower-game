@@ -512,9 +512,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
 
     if (!IDENTITY_SERVER_URL) {
-      const message = 'Add the identity server to save usernames across all games.';
-      setError(message);
-      throw new Error(message);
+      // No identity server configured: just save the display name locally.
+      // Don't throw — guests should still be able to create/join matches.
+      const nextProfile = { ...profile, displayName: trimmedName };
+      saveLocalAuth(nextProfile);
+      setProfile(nextProfile);
+      return;
     }
 
     const previousProfile = profile;

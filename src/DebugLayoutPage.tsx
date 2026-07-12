@@ -152,19 +152,19 @@ export default function DebugLayoutPage() {
   return (
     <div style={{ padding: 20, background: '#1a1a2e', minHeight: '100vh', color: '#fff' }}>
       <h2>Debug Layout Page</h2>
-      <p style={{ color: '#aaa', fontSize: 12 }}>
+      <p style={{ color: '#aaa', fontSize: 36 }}>
         Same-color flowers auto-group into one set. Container auto-scales to fit everything.
       </p>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 12, color: '#aaa' }}>Plant:</span>
+        <span style={{ fontSize: 36, color: '#aaa' }}>Plant:</span>
         {COLORS.map((c) => (
           <button
             key={c}
             onClick={() => plantFlowerAuto(c)}
             style={{
               padding: '6px 12px',
-              fontSize: 12,
+              fontSize: 36,
               background: '#4ecca3',
               color: '#1a1a2e',
               border: 'none',
@@ -192,7 +192,7 @@ export default function DebugLayoutPage() {
           Reset
         </button>
         {discardedCount > 0 && (
-          <span style={{ fontSize: 12, color: '#aaa', marginLeft: 8 }}>
+          <span style={{ fontSize: 36, color: '#aaa', marginLeft: 8 }}>
             Discarded: {discardedCount} 🌸
           </span>
         )}
@@ -218,9 +218,9 @@ export default function DebugLayoutPage() {
 
         <div style={{ flex: 1, maxHeight: 400, overflow: 'auto', background: '#111', padding: 10, borderRadius: 8 }}>
           <h4 style={{ margin: '0 0 8px' }}>Layout Logs</h4>
-          {logs.length === 0 && <p style={{ color: '#666', fontSize: 12 }}>No logs yet. Add a flower or run divine merge.</p>}
+          {logs.length === 0 && <p style={{ color: '#666', fontSize: 36 }}>No logs yet. Add a flower or run divine merge.</p>}
           {logs.map((log, i) => (
-            <pre key={i} style={{ margin: '2px 0', fontSize: 10, color: '#ccc', whiteSpace: 'pre-wrap' }}>
+            <pre key={i} style={{ margin: '2px 0', fontSize: 30, color: '#ccc', whiteSpace: 'pre-wrap' }}>
               {log}
             </pre>
           ))}

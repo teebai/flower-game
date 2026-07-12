@@ -102,9 +102,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999,
   },
   content: { textAlign: 'center', color: '#fff' },
-  spinner: { fontSize: 64, animation: 'pulse 1.5s ease-in-out infinite', marginBottom: 24 },
-  text: { fontSize: 20, fontWeight: 600, marginBottom: 16 },
-  progress: { fontSize: 14, opacity: 0.7, marginBottom: 12 },
+  spinner: { fontSize: 192, animation: 'pulse 1.5s ease-in-out infinite', marginBottom: 24 },
+  text: { fontSize: 60, fontWeight: 600, marginBottom: 16 },
+  progress: { fontSize: 42, opacity: 0.7, marginBottom: 12 },
   bar: { width: 240, height: 6, background: 'rgba(255,255,255,0.15)', borderRadius: 3, overflow: 'hidden', margin: '0 auto' },
   barFill: { height: '100%', background: 'linear-gradient(90deg, #e6c84a, #f1c40f)', borderRadius: 3, transition: 'width 0.3s ease' },
 };

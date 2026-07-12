@@ -13,12 +13,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
-    "@types/matter-js": "^0.20.2",
     "boardgame.io": "^0.50.2",
-    "framer-motion": "^12.38.0",
-    "gsap": "^3.15.0",
-    "matter-js": "^0.20.0",
-    "node-persist": "^4.0.4",
+    "gifuct-js": "^2.1.2",
+    "pixi.js": "^8.18.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -30,6 +27,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vite-plugin-purgecss": "^0.2.13"
   }
 }

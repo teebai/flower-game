@@ -1,0 +1,22 @@
+/* ══════════════════════════════════════════════════════════════
+   V2-SHELL SECTOR OVERRIDES (desktop)
+   High-specificity rules to make SVG clip-path sectors work
+   inside the v2-shell layout on desktop widths.
+   Mobile (≤640px) keeps the compact stacked layout.
+   ══════════════════════════════════════════════════════════════ */
+
+@media (min-width: 641px) {
+  body .v2-shell.page .board-arena-radial {
+    overflow: hidden !important;
+  }
+
+  body .v2-shell.page .player-garden {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    transform: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+}

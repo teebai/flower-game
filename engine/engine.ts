@@ -93,6 +93,16 @@ export class FlowerGameEngine {
         return { success: false, error: 'Game has not started yet' };
       }
 
+      // Auto-clear stale coin flip overlays (server-side expiry after 7s)
+      if (state.coinFlip && Date.now() - state.coinFlip.revealedAt > 8000) {
+        state = { ...state, coinFlip: null };
+      }
+
+      // Dismiss coin flip overlay (any player, any phase)
+      if (action.type === 'dismiss_coin_flip') {
+        return { success: true, state: { ...state, coinFlip: null }, events: [] };
+      }
+
       // Route counter actions (free, no move cost)
       if (action.type === 'counter_wind' || action.type === 'counter_divine' || action.type === 'counter_select_cards') {
         return finalizeActionResult(this.handleCounter(state, action));
@@ -154,6 +164,17 @@ export class FlowerGameEngine {
 
       let s = addLog(state, `👑 ${player.name} flips the blessing coin: ${coin.toUpperCase()}!`);
 
+      // Set coin flip state for all clients to animate together
+      s = {
+        ...s,
+        coinFlip: {
+          playerId: player.id,
+          reason: 'blessing',
+          result: coin,
+          revealedAt: Date.now(),
+        },
+      };
+
       if (coin === 'tails') {
         // Nothing extra — proceed to normal draw phase
         s = addLog(s, 'Tails — proceed to draw phase.');
@@ -185,7 +206,8 @@ export class FlowerGameEngine {
         ...s,
         blessingState: { revealedCards, emptyHandMode: emptyHand, coinResult: 'heads' },
       };
-      s = addLog(s, `Heads! ${player.name} sees the top ${revealedCards.length} card(s) and chooses ${emptyHand ? '0 (rearrange only)' : '2'} to keep.`);
+      const pickCount = drawPhaseSeason === 'summer' ? 3 : 2;
+      s = addLog(s, `Heads! ${player.name} sees the top ${revealedCards.length} card(s) and chooses ${emptyHand ? '0 (rearrange only)' : String(pickCount)} to keep.`);
       // Stay in blessing phase — waiting for blessing_choose
       return { success: true, state: s, events: [] };
     }
@@ -223,9 +245,10 @@ export class FlowerGameEngine {
         return { success: true, state: s, events: [] };
       }
 
-      // Normal mode: pick 2, arrange remaining 5
-      if (pickedIds.length !== 2) {
-        return { success: false, error: 'Must pick exactly 2 cards to keep.' };
+      // Normal mode: pick count depends on season (summer = 3, others = 2)
+      const pickCount = drawPhaseSeason === 'summer' ? 3 : 2;
+      if (pickedIds.length !== pickCount) {
+        return { success: false, error: `Must pick exactly ${pickCount} cards to keep.` };
       }
       const revealedIdSet = new Set(revealedCards.map(c => c.id));
       if (!pickedIds.every(id => revealedIdSet.has(id))) {
@@ -246,7 +269,7 @@ export class FlowerGameEngine {
       // Give picked cards to player, put arranged back on top of draw pile
       let s = updatePlayer(state, { ...player, hand: [...player.hand, ...pickedCards] });
       s = { ...s, drawPile: [...arranged, ...s.drawPile], blessingState: null };
-      s = addLog(s, `${player.name} took 2 cards from the blessing and rearranged the top ${arranged.length} on the draw pile.`);
+      s = addLog(s, `${player.name} took ${pickedIds.length} cards from the blessing and rearranged the top ${arranged.length} on the draw pile.`);
       // Blessing replaced draw — go straight to action phase
       const movesAllowed = 3;
       s = { ...s, phase: 'action', movesRemaining: movesAllowed, turnStartedAt: state.turnStartedAt || Date.now() };
@@ -566,6 +589,15 @@ export class FlowerGameEngine {
       });
       s = { ...s, discardPile: [...s.discardPile, dpCard] };
       s = addLog(s, `${target.name} uses Divine Protection — coin flip: ${coin.toUpperCase()}!`);
+      s = {
+        ...s,
+        coinFlip: {
+          playerId: target.id,
+          reason: 'divine_protection',
+          result: coin,
+          revealedAt: Date.now(),
+        },
+      };
 
       if (coin === 'heads') {
         // Block the action entirely

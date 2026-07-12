@@ -7,12 +7,15 @@ export interface MatchSeatPresence {
 
 export interface MatchCtx {
   matchID: string;
-  playerID: string;
-  playerName: string;
-  credentials: string;
+  playerID?: string;
+  playerName?: string;
+  credentials?: string;
   server: string;
   seatPresence: Record<string, MatchSeatPresence>;
   onLeave: () => void;
+  isSpectator: boolean;
 }
+
+export type MatchContextType = MatchCtx;
 
 export const MatchContext = createContext<MatchCtx | null>(null);

@@ -447,20 +447,52 @@ async function reportMatchResult(matchID: string, state: Record<string, unknown>
 
 const db = new FlatFile({ dir: HISTORY_DB_DIR });
 
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',');
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Custom Socket.IO transport with proper CORS configuration.
+// boardgame.io passes `cors: { origins }` to Socket.IO, but Socket.IO v4's
+// underlying `cors` package expects `origin` (singular). We override it here
+// so Safari gets the exact origin reflected instead of `*`, which Safari's
+// WebSocket handshake can reject.
+const { SocketIO: SocketIOTransport } = require('boardgame.io/dist/cjs/server.js');
+const socketTransport = new SocketIOTransport({
+  socketOpts: {
+    cors: {
+      origin: isProduction ? true : allowedOrigins,
+    },
+  },
+});
+
 const server = Server({
   games: [FlowerGame],
   db,
+  transport: socketTransport,
 
   // Allow all origins in development.
   // Restrict this to your domain in production.
-  origins: (ctx) => {
+  origins: (ctx: any) => {
     const origin = ctx.get('origin') || '';
-    if (process.env.NODE_ENV === 'production') {
+    if (isProduction) {
       return origin || '*';
     }
-    const allowed = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000').split(',');
-    return allowed.includes(origin) ? origin : allowed[0];
+    return allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
   },
+});
+
+// ── Global CORS middleware (must be first) ───────────────────
+// Covers all routes including SPA fallback and unmatched paths.
+server.app.use(async (ctx: any, next: () => Promise<void>) => {
+  ctx.set('Access-Control-Allow-Origin', '*');
+  ctx.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-flower-admin-key');
+  ctx.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+
+  if (ctx.method === 'OPTIONS') {
+    ctx.status = 204;
+    return;
+  }
+
+  await next();
 });
 
 server.app.use(async (ctx: any, next: () => Promise<void>) => {
@@ -1349,7 +1381,7 @@ if (fs.existsSync(distDir)) {
 
   // SPA fallback: serve index.html for any non-API route
   server.app.use(async (ctx, next) => {
-    if (ctx.path.startsWith('/games/') || ctx.path.startsWith('/lobby') || ctx.path === '/version' || ctx.path === '/health') {
+    if (ctx.path.startsWith('/games/') || ctx.path.startsWith('/lobby') || ctx.path.startsWith('/api/') || ctx.path === '/version' || ctx.path === '/health') {
       return next();
     }
     const indexPath = path.join(distDir, 'index.html');

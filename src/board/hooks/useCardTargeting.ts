@@ -11,7 +11,7 @@
 //   data-garden-id   → garden container identifier
 // ============================================================
 
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import type { Card } from '../../types/gameTypes';
 import { isFlower, isPower } from '../../cards/cardUtils';
 
@@ -78,15 +78,41 @@ export function useCardTargeting(options: UseCardTargetingOptions): UseCardTarge
 
   const hoverMode = useMemo(() => computeHoverMode(draggedCard), [draggedCard]);
 
+  // Cache last hit result so we return the SAME object reference when hovering
+  // the same target. This prevents FlowerBoard from re-rendering when the
+  // pointer wiggles within the same set.
+  const lastHitRef = useRef<GardenDropHit | null>(null);
+
   const hoveredTarget = useMemo(() => {
     if (!pointerPosition) return null;
-    return hitTestGardenDrop(pointerPosition.x, pointerPosition.y);
+    const next = hitTestGardenDrop(pointerPosition.x, pointerPosition.y);
+    const prev = lastHitRef.current;
+    if (
+      prev && next &&
+      prev.playerId === next.playerId &&
+      prev.setId === next.setId
+    ) {
+      return prev;
+    }
+    lastHitRef.current = next;
+    return next;
   }, [pointerPosition]);
 
-  const clearHover = () => null; // No-op — hover is derived from pointerPosition
+  const [hoverCleared, setHoverCleared] = useState(false);
+
+  // Reset the cleared flag whenever a new drag starts (not on every pixel move)
+  useEffect(() => {
+    if (draggedCardId) setHoverCleared(false);
+  }, [draggedCardId]);
+
+  const clearHover = useCallback(() => {
+    setHoverCleared(true);
+  }, []);
+
+  const effectiveHoveredTarget = hoverCleared ? null : hoveredTarget;
 
   return {
-    hoveredTarget,
+    hoveredTarget: effectiveHoveredTarget,
     hoverMode,
     clearHover,
   };

@@ -46,7 +46,7 @@ function btn(bg: string, color = '#fff') {
   return {
     background: bg, color, border: 'none',
     borderRadius: 8, padding: '8px 14px',
-    fontWeight: 700, fontSize: 13, cursor: 'pointer',
+    fontWeight: 700, fontSize: 39, cursor: 'pointer',
   };
 }
 
@@ -70,18 +70,18 @@ export const GameModals = React.memo(function GameModals({
         <div className={`v2-modal-body${modalOpen === 'results' ? ' v2-modal-body--results' : ''}`} style={{ color: theme.text }}>
           {modalOpen === 'menu' && (
             <>
-              <div style={{ marginBottom: 10, fontSize: 13 }}>Match: <b>{matchCtx?.matchID ?? '—'}</b></div>
-              <div style={{ marginBottom: 10, fontSize: 13 }}>You: <b>{matchCtx?.playerName ?? playerID}</b></div>
-              <div style={{ marginBottom: 10, fontSize: 13 }}>Phase: <b>{G.phase}</b></div>
-              <div style={{ marginBottom: 10, fontSize: 13 }}>Season: <b>{formatSeasonLabel(G.season)}</b></div>
-              <div style={{ marginBottom: 16, fontSize: 13 }}>Total time: <b>{totalTimerLabel}</b></div>
+              <div style={{ marginBottom: 10, fontSize: 39 }}>Match: <b>{matchCtx?.matchID ?? '—'}</b></div>
+              <div style={{ marginBottom: 10, fontSize: 39 }}>You: <b>{matchCtx?.playerName ?? playerID}</b></div>
+              <div style={{ marginBottom: 10, fontSize: 39 }}>Phase: <b>{G.phase}</b></div>
+              <div style={{ marginBottom: 10, fontSize: 39 }}>Season: <b>{formatSeasonLabel(G.season)}</b></div>
+              <div style={{ marginBottom: 16, fontSize: 39 }}>Total time: <b>{totalTimerLabel}</b></div>
               {matchResult && (
-                <button style={{ ...btn(theme.accent, '#1a1a2e'), fontSize: 12, marginBottom: 10 }}
+                <button style={{ ...btn(theme.accent, '#1a1a2e'), fontSize: 36, marginBottom: 10 }}
                   onClick={onViewResults}>
                   View Results
                 </button>
               )}
-              <button style={{ ...btn('#555'), fontSize: 12 }}
+              <button style={{ ...btn('#555'), fontSize: 36 }}
                 onClick={() => { void navigator.clipboard.writeText(matchCtx?.matchID ?? ''); }}>
                 📋 Copy Match ID
               </button>
@@ -100,7 +100,7 @@ export const GameModals = React.memo(function GameModals({
                 </div>
                 <div className="v2-results-summary-card" style={{ background: theme.panelSoft, border: `1px solid ${theme.border}` }}>
                   <div className="v2-results-summary-label" style={{ color: theme.muted }}>Season</div>
-                  <div className="v2-results-summary-value">{formatSeasonLabel(matchResult.seasonAtFinish)}</div>
+                  <div className="v2-results-summary-value">{matchResult.seasonAtFinish ? formatSeasonLabel(matchResult.seasonAtFinish as import('../../types/gameTypes').Season) : '—'}</div>
                 </div>
                 <div className="v2-results-summary-card" style={{ background: theme.panelSoft, border: `1px solid ${theme.border}` }}>
                   <div className="v2-results-summary-label" style={{ color: theme.muted }}>Cards Left</div>
@@ -144,10 +144,10 @@ export const GameModals = React.memo(function GameModals({
                 ))}
               </div>
               <div className="v2-results-actions">
-                <button style={{ ...btn(theme.accent, '#1a1a2e'), fontSize: 12 }} onClick={onLeave}>
+                <button style={{ ...btn(theme.accent, '#1a1a2e'), fontSize: 36 }} onClick={onLeave}>
                   Back to Lobby
                 </button>
-                <button style={{ ...btn('#555'), fontSize: 12 }}
+                <button style={{ ...btn('#555'), fontSize: 36 }}
                   onClick={() => { void navigator.clipboard.writeText(matchCtx?.matchID ?? ''); }}>
                   Copy Match ID
                 </button>
@@ -155,7 +155,7 @@ export const GameModals = React.memo(function GameModals({
             </>
           )}
           {modalOpen === 'rules' && (
-            <div style={{ fontSize: 13, color: theme.muted, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 39, color: theme.muted, lineHeight: 1.6 }}>
               <p>Plant flowers into gardens. Complete sets of 3+ matching flowers to score. Use power cards to disrupt opponents.</p>
               <p>The player with the most complete sets when the draw pile empties wins!</p>
               <p>God's Favourite cannot win until they pass it on.</p>

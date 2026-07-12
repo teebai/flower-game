@@ -1,0 +1,3526 @@
+/* ── Performance: kill backdrop-filter during gameplay ───
+   backdrop-filter forces the browser to composite the entire
+   subtree on every frame — catastrophic during drag-and-drop.
+   Solid semi-transparent backgrounds are 10-20x cheaper. */
+.drag-preview-card,
+.garden-mini-meta,
+.garden-mini-meta__name,
+.garden-mini-meta__count,
+.icon-btn,
+.action-sheet,
+.action-sheet-overlay,
+.turn-timer-bubble__time,
+.turn-timer-bubble__deck,
+.chat-panel-header,
+.game-menu-btn,
+.arena-log-toast,
+.modal-panel,
+.modal-btn,
+.mobile-action-zone,
+.action-sheet-dropdown,
+.settings-panel,
+.disconnect-overlay,
+.garden-empty-slot {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* ── Dynamic board layout ──────────────────────────────── */
+
+.board-arena {
+  align-items: stretch;
+  gap: 18px;
+}
+
+.board-arena-radial {
+  position: relative;
+  min-height: var(--arena-height, calc(100vh - 255px));
+  height: var(--arena-height, calc(100vh - 255px));
+  margin: 118px 0 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  touch-action: none;
+  /* GrassField canvas draws the identical radial-gradient; keep arena transparent
+     so the two backgrounds never compete and no seam forms at edges. */
+  background: transparent;
+}
+
+.arena-pan-stage,
+.arena-zoom-stage {
+  position: absolute;
+  inset: 0;
+  touch-action: none; /* Prevent browser-native pinch-zoom interference */
+}
+
+.arena-pan-stage {
+  will-change: transform;
+  transform: translate3d(var(--arena-pan-x, 0px), var(--arena-pan-y, 0px), 0);
+}
+
+.arena-zoom-stage {
+  transform: scale(var(--arena-zoom, 1));
+  transform-origin: center center;
+}
+
+.arena-core-ui {
+  position: absolute;
+  z-index: 15;
+  opacity: 0.6;
+  pointer-events: auto;
+}
+
+/* ── Center draw indicator (screen-space, NOT world-space) ── */
+.arena-draw-indicator {
+  position: absolute;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  pointer-events: auto;
+  padding: 0;
+}
+
+.arena-draw-fan {
+  position: relative;
+  width: 280px;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.arena-draw-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 60px;
+  max-width: 60px;
+  height: auto;
+  max-height: 84px;
+  aspect-ratio: 750 / 1050;
+  border-radius: 6px;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+  object-fit: contain;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.arena-draw-indicator:hover .arena-draw-card {
+  filter: brightness(1.15);
+}
+
+.arena-draw-label {
+  position: absolute;
+  bottom: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  font: 800 18px/1 var(--font-playful);
+  color: #1a1a1a;
+  text-shadow: 0 1px 0 #fff, 0 0 8px #fff;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── Blessing Phase Fan ─────────────────────────────────── */
+
+.blessing-fan {
+  position: relative;
+  width: 960px;
+  height: 330px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.blessing-fan-card {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  margin-left: -63px;
+  width: 126px;
+  aspect-ratio: 750 / 1050;
+  border-radius: 12px;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.15s ease;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.blessing-fan-card .card-chip {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: 12px;
+}
+
+/* Selected cards get rainbow outline (same as drag overlay) */
+.blessing-fan-card.selected .card-chip {
+  animation: rainbow-edge 0.7s steps(1) infinite;
+}
+
+/* Ghost the original while dragging */
+.blessing-fan-card.dragging {
+  opacity: 0.25;
+}
+
+/* Draggable cursor hint */
+.blessing-fan-card.draggable {
+  cursor: grab;
+}
+.blessing-fan-card.draggable:active {
+  cursor: grabbing;
+}
+
+/* Rank label (1st, 2nd, 3rd, 4th, 5th) on unselected cards */
+.blessing-rank {
+  position: absolute;
+  top: -32px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, #e6c84a, #c9a227);
+  color: #1a1a2e;
+  font-size: 15px;
+  font-weight: 900;
+  padding: 3px 10px;
+  border-radius: 10px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Card back for empty-hand mode */
+.blessing-card-back {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: 0 8px 36px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+/* Mobile responsive */
+@media (max-width: 640px) {
+  .blessing-fan {
+    width: 720px;
+    height: 260px;
+  }
+  .blessing-fan-card {
+    width: 96px;
+    margin-left: -48px;
+  }
+}
+
+@media (max-width: 480px) {
+  .blessing-fan {
+    width: 580px;
+    height: 220px;
+  }
+  .blessing-fan-card {
+    width: 78px;
+    margin-left: -39px;
+  }
+  .blessing-rank {
+    font-size: 12px;
+    padding: 2px 6px;
+    top: -26px;
+  }
+}
+
+/* ── Blessing Hand-Deck Panel (normal mode) ─────────────── */
+
+.blessing-hand-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.blessing-title {
+  color: #e6c84a;
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.blessing-instruction {
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 800;
+  margin: 0;
+  text-align: center;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);
+  line-height: 1.3;
+  max-width: 520px;
+}
+
+.blessing-counter {
+  color: #aaa;
+  font-size: 20px;
+  font-weight: 900;
+  margin: 0;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.blessing-counter.is-full {
+  color: #4ecca3;
+  text-shadow: 0 0 8px rgba(78, 204, 163, 0.4), 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.blessing-unified-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 280px;
+  padding: 60px 40px 20px;    /* 40px left/right so edge cards don't clip */
+  overflow-x: visible;
+  overflow-y: visible;
+  touch-action: pan-y;
+}
+
+.blessing-unified-card {
+  position: relative;
+  flex-shrink: 0;
+  width: 126px;
+  aspect-ratio: 750 / 1050;
+  margin: 0 -6px;
+  border-radius: 12px;
+  cursor: pointer;
+  transform-origin: bottom center;
+  transition: transform 0.2s ease-out, margin 0.2s ease-out, opacity 0.15s ease;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  background: #e2e2e2;
+  border: 2px solid #ededed;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
+  overflow: hidden;
+}
+
+.blessing-unified-card .card-chip {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.blessing-unified-card .card-chip .art {
+  border-radius: 0 !important;
+}
+
+.blessing-unified-card.is-unselected { z-index: 2; }
+
+.blessing-unified-card.is-selected {
+  transform: translateY(-30px);
+  z-index: 1;
+  border-radius: 12px;
+  animation: rainbow-glow 1s linear infinite;
+}
+
+.blessing-spacer { width: 20px; flex-shrink: 0; }
+
+/* ── Arranged cards fully vanish from the row ── */
+.blessing-unified-card.is-arranged {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(0.88);
+  transition: transform 0.25s ease, opacity 0.2s ease, visibility 0.2s ease;
+}
+
+/* ── Draw pile preview strip ── */
+.blessing-preview-strip {
+  display: flex;
+  gap: 8px;
+  margin: 16px auto;
+  justify-content: center;
+  min-height: 130px;
+  padding: 12px;
+  align-items: center;
+  /* Remove the dark box */
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+/* Subtle dashed outline when empty for drop-target hint */
+.blessing-preview-strip:empty {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  border: 2px dashed rgba(78, 204, 163, 0.25);
+}
+
+/* No background tint at all — completely transparent */
+.blessing-preview-strip:not(:empty) {
+  background: transparent;
+}
+
+.blessing-preview-card {
+  width: 80px;
+  height: 112px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #e6c84a;
+  flex-shrink: 0;
+  background: #e2e2e2;
+  position: relative;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.blessing-preview-card.is-entering {
+  animation: blessing-preview-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.blessing-preview-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+
+.blessing-preview-rank {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 42px;
+  font-weight: 900;
+  color: #ffffff;
+  -webkit-text-stroke: 2.5px #ff00ff;
+  paint-order: stroke fill;
+  text-shadow:
+    0 0 6px rgba(255, 0, 255, 0.4),
+    0 1px 3px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  user-select: none;
+  line-height: 1;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* ── Arrange flyer + Confirm flyer styles are all inline via cssText ── */
+/* ── Confirm flyer: back-art cards fly to draw deck ── */
+.blessing-confirm-flyer {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  transition: transform 0.85s cubic-bezier(0.2, 0, 0, 1), opacity 0.5s ease;
+  will-change: transform, opacity;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  border-radius: 8px;
+}
+
+.blessing-confirm-flyer img {
+  display: block;
+}
+
+/* Confirm button */
+.blessing-confirm-btn {
+  position: relative;
+  z-index: 100;
+  pointer-events: auto;
+  background: #4ecca3;
+  color: #1a1a2e;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 28px;
+  font-size: 20px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+.blessing-confirm-btn:disabled {
+  background: #555;
+  color: #aaa;
+  cursor: not-allowed;
+}
+.blessing-confirm-btn:not(:disabled):hover {
+  filter: brightness(1.1);
+  transform: scale(1.04);
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  .blessing-unified-card {
+    width: 96px;
+  }
+  .blessing-unified-row {
+    height: 180px;
+  }
+}
+
+.player-garden {
+  position: absolute;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.garden-body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 64%;
+  transform: scale(calc(1 + var(--proximity, 0) * 0.04));
+  transition: transform 100ms ease-out;
+}
+
+/* Garden pseudo-elements removed — they were creating unwanted dark halos.
+   Gardens now rely on the GrassField background + DOM content only. */
+.garden-body::before,
+.garden-body::after {
+  content: none;
+}
+
+.garden-goo-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.garden-visual-fx {
+  position: absolute;
+  inset: 10px 12px 12px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.garden-visual-fx__image {
+  width: 82%;
+  height: 82%;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.28));
+  animation: garden-visual-fx-pop 1000ms cubic-bezier(.22,.8,.2,1) forwards;
+}
+
+.garden-visual-fx--natural-disaster .garden-visual-fx__image {
+  width: 88%;
+  height: 88%;
+}
+
+.player-garden::before,
+.player-garden::after { content: none; }
+
+.player-garden.is-gods-fav .garden-blob-svg {
+  filter: drop-shadow(0 0 12px rgba(255, 214, 102, 0.78)) drop-shadow(0 0 24px rgba(255, 214, 102, 0.4));
+}
+
+.player-garden.is-gods-fav.is-targeted .garden-blob-svg {
+  filter: drop-shadow(0 0 12px rgba(255, 214, 102, 0.76)) drop-shadow(0 0 24px rgba(255, 214, 102, 0.38)) drop-shadow(0 0 12px rgba(255,126,182,0.52));
+}
+
+/* ── Divine Favourite orb transition (garden-to-garden flow) ─── */
+.divine-transition-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.divine-transition-orb {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0%, #fff176 40%, #ff9800 100%);
+  box-shadow:
+    0 0 2px 1px rgba(255, 255, 255, 1.0),
+    0 0 8px 3px rgba(255, 220, 100, 0.90),
+    0 0 20px 6px rgba(255, 180, 60, 0.75),
+    0 0 40px 12px rgba(255, 160, 40, 0.55),
+    0 0 70px 22px rgba(255, 140, 20, 0.35),
+    0 0 110px 36px rgba(255, 120, 0, 0.18);
+  offset-rotate: auto var(--rot0, 0deg);
+  animation: divine-orb-flight var(--dur, 1.2s) var(--ease, cubic-bezier(0.5, 0, 0.75, 0)) forwards;
+  will-change: offset-distance, opacity;
+  overflow: visible;
+}
+
+/* Rotating 4-point sparkle — larger than the orb so it sticks out */
+.divine-transition-orb::before,
+.divine-transition-orb::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: radial-gradient(circle, #ffffff 0%, #fff176 60%, #ff9800 100%);
+  pointer-events: none;
+}
+
+/* Main sparkle — 16px star spinning clockwise */
+.divine-transition-orb::before {
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  margin-top: -8px;
+  clip-path: polygon(50% 0%, 55% 40%, 100% 50%, 55% 60%, 50% 100%, 45% 60%, 0% 50%, 45% 40%);
+  opacity: 0.95;
+  animation: sparkle-spin 0.3s linear infinite;
+  filter: brightness(2.2);
+}
+
+/* Secondary sparkle — smaller, counter-spinning */
+.divine-transition-orb::after {
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  margin-top: -5px;
+  clip-path: polygon(50% 0%, 55% 40%, 100% 50%, 55% 60%, 50% 100%, 45% 60%, 0% 50%, 45% 40%);
+  opacity: 0.75;
+  animation: sparkle-spin 0.45s linear infinite reverse;
+  filter: brightness(2.2);
+}
+
+@keyframes sparkle-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(90deg); }
+}
+
+/* Smooth acceleration — single continuous curve, no mid-flight stops */
+@keyframes divine-orb-flight {
+  0% {
+    offset-distance: 0%;
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+    transform: scale(0.5);
+  }
+}
+
+/* ── Divine Favourite — individually orbiting neon particles ──── */
+.garden-divine-particles {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  /* Fast fade-out when departing (no delay), delayed fade-in when arriving */
+  transition: opacity 150ms ease-out;
+  /* Subtle brightness pulse instead of expensive hue-rotate */
+  animation: particle-container-rainbow 3s ease-in-out infinite;
+}
+
+.garden-divine-particles.is-visible {
+  opacity: 1;
+  transition: opacity 350ms ease-out;
+}
+
+/* Each particle orbits independently — only transform animated (GPU) */
+.garden-divine-particle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation: particle-orbit var(--orbit-dur, 12s) linear infinite;
+  animation-delay: var(--orbit-delay, 0s);
+  will-change: transform;
+}
+
+/* Static glow — box-shadow is 10-20x cheaper than stacked drop-shadows */
+.garden-divine-particle__core {
+  width: var(--p-size, 18px);
+  height: var(--p-size, 18px);
+  margin-left: calc(var(--p-size, 18px) / -2);
+  margin-top: calc(var(--p-size, 18px) / -2);
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0%, #fff176 40%, #ff9800 100%);
+  /* box-shadow does NOT follow clip-path alpha — but on a circle it's visually identical
+     and avoids 6 expensive drop-shadow Gaussian blurs per particle */
+  box-shadow:
+    0 0 3px 1px rgba(255, 255, 255, 0.9),
+    0 0 11px 3px rgba(255, 220, 100, 0.75),
+    0 0 26px 7px rgba(255, 180, 60, 0.55),
+    0 0 52px 14px rgba(255, 160, 40, 0.35),
+    0 0 92px 26px rgba(255, 140, 20, 0.20),
+    0 0 146px 42px rgba(255, 120, 0, 0.10);
+  animation: particle-sparkle var(--sparkle-dur, 2s) ease-in-out infinite;
+  animation-delay: var(--sparkle-delay, 0s);
+  will-change: transform, opacity;
+}
+
+@keyframes particle-orbit {
+  0%   { transform: rotate(0deg) translateX(var(--orbit-r, 240px)); }
+  100% { transform: rotate(360deg) translateX(var(--orbit-r, 240px)); }
+}
+
+/* GPU-composited sparkle: only opacity + transform */
+@keyframes particle-sparkle {
+  0%, 100% { opacity: 0.35; transform: scale(0.7); }
+  50% { opacity: 1; transform: scale(1.4); }
+}
+
+/* Static warm gold tint — no continuous filter animation */
+@keyframes particle-container-rainbow {
+  0%   { filter: brightness(2.2) saturate(1.3); }
+  50%  { filter: brightness(2.4) saturate(1.5); }
+  100% { filter: brightness(2.2) saturate(1.3); }
+}
+
+.garden-zone {
+  position: absolute !important;
+  inset: 34px 8px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  align-content: stretch;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none;
+  padding: 2px 0 4px !important;
+  scrollbar-width: none;
+  z-index: 2;
+}
+
+.garden-zone::-webkit-scrollbar { display: none; }
+
+
+.garden-set-chip::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 38% 32%, rgba(255,255,255,0.52) 0%, rgba(255,255,255,0) 44%),
+    var(--cluster-tint, rgba(171, 214, 193, 0.72));
+  z-index: -1;
+  pointer-events: none;
+}
+
+.player-garden .garden-quick-confirm {
+  position: relative;
+  z-index: 2;
+}
+
+.garden-mini-meta {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+  pointer-events: auto;
+}
+
+.garden-mini-meta:active {
+  transform: translateY(1px);
+}
+
+.garden-mini-meta > div:first-child {
+  min-width: 0;
+}
+
+.garden-mini-meta__name {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: min(100%, 444px);
+  margin: 0 auto;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: rgba(60, 50, 80, 0.92);
+  background: rgba(255, 255, 255, 0.78);
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* Opponent gardens: small circular name tags */
+.player-garden:not(.is-me) .garden-mini-meta__name {
+  padding: 2px 7px;
+  font-size: 10px;
+  border-radius: 999px;
+  gap: 3px;
+  background: rgba(255, 255, 255, 0.88);
+}
+.player-garden:not(.is-me) .garden-mini-meta__count {
+  font-size: 10px;
+}
+
+/* Player garden: larger pill name tag */
+.player-garden.is-me .garden-mini-meta__name {
+  padding: 4px 14px;
+  font-size: 13px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* ── Floating opponent name tags ─────────────────────────── */
+.garden-name-tag {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(calc(-50% + var(--tag-x, 0px)), calc(-50% + var(--tag-y, 0px)));
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 58px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(200, 180, 210, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 80ms ease, background 120ms ease;
+}
+.garden-name-tag:hover {
+  transform: translate(calc(-50% + var(--tag-x, 0px)), calc(-50% + var(--tag-y, 0px))) scale(1.06);
+  background: rgba(255, 255, 255, 0.96);
+}
+.garden-name-tag__name {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(60, 50, 80, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 72px;
+  line-height: 1.1;
+  text-align: center;
+}
+.garden-name-tag__count {
+  font-size: 10px;
+  font-weight: 800;
+  color: rgba(100, 80, 120, 0.75);
+  line-height: 1.1;
+}
+
+/* ── UI Overlay layer (screen-space, above zoomed world) ─── */
+.arena-ui-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+  overflow: visible;
+}
+.arena-ui-overlay > * {
+  pointer-events: auto;
+}
+
+/* ── Player badges (GIF bubble near the sun) ─────────────── */
+.garden-player-badge {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 240px;
+  height: 110px;
+  background: url('/player-name-bg.gif') top center / 200px auto no-repeat;
+  border: none;
+  pointer-events: auto;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 12px;
+}
+.garden-player-badge__name {
+  font-size: 64px;
+  font-weight: 900;
+  max-width: 230px;
+  line-height: 1;
+  color: #1a1a1a;
+  text-shadow: 0 1px 0 rgba(255,255,255,1), 0 0 12px rgba(255,255,255,0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.garden-player-badge__count {
+  font-size: 16px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+.garden-player-badge__icon {
+  width: 20px;
+  height: auto;
+  vertical-align: middle;
+}
+
+.garden-player-badge.is-me {
+  width: 200px;
+  height: 90px;
+}
+.garden-player-badge.is-me .garden-player-badge__name {
+  font-size: 32px;
+}
+
+/* ── Player name pill (bottom center, below discard pile) ─── */
+.player-name-pill {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(calc(-50% + var(--pill-x, 0px)), calc(-50% + var(--pill-y, 0px)));
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 28px;
+  border-radius: 999px;
+  background: rgba(30, 30, 45, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+}
+.player-name-pill__text {
+  font-family: var(--font-playful);
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+}
+
+/* ── Discard pile modal ───────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+.modal-panel {
+  background: #1a1a2e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  max-width: 90vw;
+  width: 520px;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.modal-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 18px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s ease;
+}
+.modal-close:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.garden-mini-meta__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.9);
+  font-weight: 800;
+  font-size: 30px;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@keyframes garden-visual-fx-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  12% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  82% {
+    transform: scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.04);
+    opacity: 0;
+  }
+}
+
+.garden-grid {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: 4px 6px;
+  width: calc(100% - 12px);
+  max-width: calc(100% - 12px);
+  min-height: fit-content;
+  padding-top: 4px;
+  margin: 0 auto;
+  transform: none;
+  z-index: 2;
+}
+
+.garden-grid.is-empty {
+  position: relative;
+  justify-content: center;
+  align-items: center;
+  align-content: center;
+  padding-top: 0;
+  transform: none;
+}
+
+.garden-set-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px;
+  padding: 3px 5px;
+  border-radius: 10px;
+  border: 2px solid var(--garden-set-border, transparent);
+  background: var(--garden-set-bg, transparent);
+  filter: var(--garden-set-glow, none);
+  min-height: 22px;
+  margin: 0;
+  z-index: 1;
+  transform: none;
+  transition: transform 220ms ease, filter 220ms ease, opacity 220ms ease;
+}
+
+.garden-set-chip.size-lg {
+  padding: 4px 6px;
+}
+
+.garden-set-chip.size-xl {
+  padding: 4px 7px;
+}
+
+.garden-set-chip.size-token {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 4px 8px;
+  justify-content: center;
+}
+
+.garden-set-chip.is-token {
+  background: linear-gradient(180deg, rgba(142, 224, 255, 0.22), rgba(255, 255, 255, 0.08));
+}
+
+.mini-token-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 84px;
+  line-height: 1;
+  filter: drop-shadow(0 0 10px rgba(142, 224, 255, 0.55));
+}
+
+.garden-set-chip:hover,
+.garden-set-chip.is-highlighted,
+.garden-set-chip.is-drag-active {
+  z-index: 3;
+}
+
+/* New chips during physics: fade in at their entry position */
+
+@keyframes garden-physics-entry {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.garden-grid.is-dragging .garden-set-chip {
+  transform: scale(calc(1 + var(--proximity, 0) * 0.08));
+  transition: transform 120ms ease-out, filter 220ms ease, opacity 220ms ease;
+}
+
+.player-garden.is-settling .garden-set-chip,
+.garden-body.is-settling .garden-set-chip {
+  /* Removed will-change — filter in will-change forces extra GPU memory
+     allocation during settling, contributing to Chrome lag. */
+  animation: garden-chip-settle 860ms cubic-bezier(.2,.88,.22,1) both;
+  animation-delay: var(--cluster-delay, 0ms);
+}
+
+.player-garden.is-settling .garden-set-chip.is-new-growth,
+.garden-body.is-settling .garden-set-chip.is-new-growth {
+  animation: garden-chip-growth 920ms cubic-bezier(.16,.92,.2,1) both;
+  animation-delay: 0ms;
+}
+
+.garden-empty-slot {
+  border: none !important;
+  border-radius: 0;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 12px;
+  background: transparent !important;
+  color: #8b5b77 !important;
+  font-family: var(--font-playful);
+  font-size: 42px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.32);
+  width: min(132px, 80%);
+  margin: auto;
+}
+
+.garden-grid.is-empty .garden-empty-slot {
+  position: absolute;
+  left: 50%;
+  top: 57%;
+  width: min(124px, 74%);
+  margin: 0;
+  transform: translate(-50%, -50%);
+}
+
+/* Empty garden drop zone — must cover full garden area so drag-and-drop
+   can hit it anywhere (parent .player-garden has pointer-events:none).
+   The child overrides with pointer-events:auto to receive drops. */
+.player-garden > .garden-empty-slot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  pointer-events: auto;
+}
+
+/* Move transition from inline styles to CSS — prevents re-parsing on every render */
+.garden-flower-wrapper {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.25s ease, opacity 0.2s ease;
+}
+
+/* Flower fan & breathe: rotation + scale jitter per flower */
+.garden-flower-particle {
+  transform: rotate(var(--f-rot, 0deg)) scale(var(--f-scale, 1));
+}
+
+/* Touch zones never shrink below finger size */
+.garden-set-hover-zone {
+  min-width: 80px !important;
+  min-height: 80px !important;
+}
+
+@keyframes garden-cluster-settle {
+  0% {
+    transform: translateX(-50%) translateY(-12px) scale(0.96);
+    opacity: 0.42;
+  }
+  55% {
+    transform: translateX(-50%) translateY(3px) scale(1.02);
+    opacity: 0.92;
+  }
+  100% {
+    transform: translateX(-50%) translateY(0) scale(1);
+    opacity: 0.86;
+  }
+}
+
+@keyframes garden-chip-settle {
+  0% {
+    transform: translate3d(0, -10px, 0) scale(0.96);
+    opacity: 0.82;
+  }
+  58% {
+    transform: translate3d(0, 2px, 0) scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes garden-chip-growth {
+  0% {
+    transform: translate3d(0, -14px, 0) scale(0.72);
+    opacity: 0;
+    filter: brightness(1.18) saturate(1.22) var(--garden-set-glow, none);
+  }
+  45% {
+    transform: translate3d(0, 1px, 0) scale(1.07);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+    filter: var(--garden-set-glow, none);
+  }
+}
+
+.garden-density-spacious .card-chip { margin: 1px; }
+.garden-density-comfy .card-chip { margin: 1px; }
+.garden-density-compact .card-chip { margin: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  
+  .player-garden.is-settling .garden-set-chip,
+  .garden-body.is-settling .garden-set-chip,
+  .player-garden.is-settling .garden-set-chip.is-new-growth,
+  .garden-body.is-settling .garden-set-chip.is-new-growth {
+    animation: none !important;
+  }
+
+  .garden-set-chip {
+    transition: none;
+  }
+}
+
+.page.theme-spring .card-chip {
+  border-color: rgba(142, 107, 255, 0.28);
+  box-shadow: 0 8px 18px rgba(120, 65, 108, 0.14);
+}
+
+.page.theme-spring .card-chip.selected {
+  border-color: #ff7eb6;
+  box-shadow: 0 0 0 2px rgba(255,126,182,0.22), 0 10px 24px rgba(255,126,182,0.24);
+}
+
+.discard-fly-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1400;
+}
+
+.drag-card-overlay {
+  position: fixed;
+  pointer-events: none;
+  z-index: 1450;
+  transform-origin: center center;
+  /* Scale is now applied inline via transform: translate(...) scale(...)
+     so we only set the non-scale properties here. */
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+}
+
+/* Smaller card when hovering a valid target (desktop) */
+.drag-card-overlay.is-over-valid-target {
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* On mobile: soften shadow so card stays under finger */
+@media (hover: none) and (pointer: coarse) {
+  .drag-card-overlay {
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
+  }
+}
+
+.drag-card-overlay .card-chip {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  /* Keep hand-card grey background, animate only border + glow */
+  background: #e2e2e2 !important;
+  animation: rainbow-edge 0.7s steps(1) infinite;
+}
+
+@keyframes rainbow-edge {
+  0%   { outline-color: #ff0000; }
+  17%  { outline-color: #ff8800; }
+  33%  { outline-color: #ffdd00; }
+  50%  { outline-color: #00ff00; }
+  67%  { outline-color: #0088ff; }
+  83%  { outline-color: #8800ff; }
+  100% { outline-color: #ff0000; }
+}
+
+@keyframes rainbow-glow {
+  0%   { box-shadow: inset 0 0 0 2px rgba(255, 0, 0, 0.85); }
+  17%  { box-shadow: inset 0 0 0 2px rgba(255, 165, 0, 0.85); }
+  33%  { box-shadow: inset 0 0 0 2px rgba(255, 255, 0, 0.85); }
+  50%  { box-shadow: inset 0 0 0 2px rgba(0, 255, 0, 0.85); }
+  67%  { box-shadow: inset 0 0 0 2px rgba(0, 127, 255, 0.85); }
+  83%  { box-shadow: inset 0 0 0 2px rgba(148, 0, 211, 0.85); }
+  100% { box-shadow: inset 0 0 0 2px rgba(255, 0, 0, 0.85); }
+}
+
+.drag-card-overlay.is-snapping-back {
+  transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 180ms ease-out;
+  opacity: 0.6;
+}
+
+.tether-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1350;
+}
+
+.tether-path {
+  fill: none;
+  stroke: url(#tetherGradient);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-dasharray: 18 12;
+  filter: drop-shadow(0 0 14px rgba(255,126,182,0.35));
+  animation: tether-drift 1.4s linear infinite;
+}
+
+.turn-aura {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 900;
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+
+.turn-aura.is-active {
+  opacity: 1;
+  background:
+    radial-gradient(circle at center, transparent 62%, rgba(255,255,255,0.04) 70%, rgba(255,126,182,0.2) 86%, rgba(142,107,255,0.18) 100%),
+    conic-gradient(from 0deg, rgba(255,126,182,0.18), rgba(255,214,122,0.15), rgba(142,107,255,0.16), rgba(255,126,182,0.18));
+  mix-blend-mode: screen;
+}
+
+.turn-aura.is-urgent {
+  opacity: 1;
+  background:
+    radial-gradient(circle at center, transparent 60%, rgba(255,100,100,0.14) 78%, rgba(255,60,60,0.24) 100%),
+    conic-gradient(from 0deg, rgba(255,90,90,0.22), rgba(255,40,40,0.15), rgba(255,90,90,0.22));
+}
+
+.your-turn-banner {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%) scale(0.9);
+  z-index: 950;
+  pointer-events: none;
+  animation: your-turn-pop 2.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.your-turn-banner__text {
+  display: block;
+  padding: 10px 28px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255,200,120,0.9), rgba(255,140,180,0.9));
+  color: #1a1a2e;
+  font: 800 33px/1 var(--font-playful);
+  box-shadow: 0 6px 24px rgba(255,140,100,0.35);
+}
+
+/* Turn timer bubble — centered top bar pill (wireframe style) */
+.turn-timer-bubble {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 950;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 26px;
+  border-radius: 999px;
+  background: rgba(20, 20, 35, 0.92);
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  pointer-events: none;
+}
+
+.turn-timer-bubble__name,
+.turn-timer-bubble__clock,
+.turn-timer-bubble__moves {
+  font-family: var(--font-playful);
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* Other player's turn — translucent white */
+.turn-timer-bubble:not(.is-my-turn):not(.is-urgent) .turn-timer-bubble__name,
+.turn-timer-bubble:not(.is-my-turn):not(.is-urgent) .turn-timer-bubble__clock,
+.turn-timer-bubble:not(.is-my-turn):not(.is-urgent) .turn-timer-bubble__moves {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Your turn — translucent green */
+.turn-timer-bubble.is-my-turn {
+  background: rgba(78, 204, 163, 0.22);
+  border-color: rgba(78, 204, 163, 0.45);
+  box-shadow: 0 4px 20px rgba(78, 204, 163, 0.18);
+}
+
+.turn-timer-bubble.is-my-turn .turn-timer-bubble__name,
+.turn-timer-bubble.is-my-turn .turn-timer-bubble__clock,
+.turn-timer-bubble.is-my-turn .turn-timer-bubble__moves {
+  color: #d4f8e8;
+}
+
+/* Urgent — translucent red */
+.turn-timer-bubble.is-urgent {
+  background: rgba(233, 69, 96, 0.22);
+  border-color: rgba(233, 69, 96, 0.50);
+  box-shadow: 0 4px 20px rgba(233, 69, 96, 0.22);
+  animation: urgent-bubble-glow 1s ease-in-out infinite;
+}
+
+.turn-timer-bubble.is-urgent .turn-timer-bubble__name,
+.turn-timer-bubble.is-urgent .turn-timer-bubble__clock,
+.turn-timer-bubble.is-urgent .turn-timer-bubble__moves {
+  color: #ffd1d1;
+}
+
+@keyframes urgent-bubble-glow {
+  0%, 100% { box-shadow: 0 4px 20px rgba(233, 69, 96, 0.18); }
+  50% { box-shadow: 0 4px 28px rgba(233, 69, 96, 0.35); }
+}
+
+.turn-timer-bubble__deck {
+  font-size: 22px;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
+  line-height: 1;
+}
+
+@keyframes your-turn-pop {
+  0%   { transform: translateX(-50%) scale(0.6); opacity: 0; }
+  15%  { transform: translateX(-50%) scale(1.08); opacity: 1; }
+  25%  { transform: translateX(-50%) scale(1); opacity: 1; }
+  80%  { transform: translateX(-50%) scale(1); opacity: 1; }
+  100% { transform: translateX(-50%) scale(0.95); opacity: 0; }
+}
+
+/* ── Game Log Toggle & Panel (top right) ──────────────────── */
+.game-log-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 950;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(30, 30, 45, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.85);
+  font-family: var(--font-playful);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.game-log-toggle:hover {
+  background: rgba(45, 45, 65, 0.9);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.game-log-toggle.is-open {
+  background: rgba(78, 204, 163, 0.25);
+  border-color: rgba(78, 204, 163, 0.5);
+  color: #d4f8e8;
+}
+
+.game-log-panel {
+  position: fixed;
+  top: 56px;
+  right: 16px;
+  width: 300px;
+  max-height: 360px;
+  background: rgba(20, 20, 35, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  z-index: 950;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+.game-log-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: var(--font-playful);
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+}
+.game-log-panel__close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 2px 6px;
+  line-height: 1;
+}
+.game-log-panel__close:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+.game-log-panel__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.game-log-panel__item {
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.75);
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.game-log-panel__empty {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  padding: 20px;
+}
+
+.garden-counter-target {
+  border: 3px solid rgba(255, 80, 80, 0.7);
+  box-shadow:
+    0 0 0 4px rgba(255, 80, 80, 0.15),
+    0 0 20px rgba(255, 80, 80, 0.25),
+    inset 0 0 12px rgba(255, 80, 80, 0.1);
+  animation: counter-target-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes counter-target-pulse {
+  0%   { transform: scale(0.92); opacity: 0.7; }
+  50%  { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(0.92); opacity: 0.7; }
+}
+
+.scene-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+@keyframes lightning-flash {
+  0% {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.95);
+  }
+  8% {
+    opacity: 0.25;
+    background: rgba(200, 220, 255, 0.6);
+  }
+  14% {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.9);
+  }
+  22% {
+    opacity: 0.4;
+    background: rgba(220, 235, 255, 0.5);
+  }
+  30% {
+    opacity: 0.85;
+    background: rgba(255, 255, 255, 0.75);
+  }
+  100% {
+    opacity: 0;
+    background: rgba(255, 255, 255, 0);
+  }
+}
+
+.card-play-fx {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 1120;
+  background: rgba(10, 8, 20, 0.14);
+}
+
+.card-play-fx__image {
+  width: min(80vw, 80vh);
+  height: min(80vw, 80vh);
+  object-fit: contain;
+  filter: drop-shadow(0 18px 42px rgba(0, 0, 0, 0.28));
+  animation: card-play-fx-pop 1000ms cubic-bezier(.22,.8,.2,1) forwards;
+}
+
+@keyframes card-play-fx-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  14% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  82% {
+    transform: scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.06);
+    opacity: 0;
+  }
+}
+
+.discard-fly-card {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  animation: discard-fly 850ms cubic-bezier(.2,.7,.2,1) forwards;
+  transform-origin: center center;
+}
+
+@keyframes discard-fly {
+  0%   { transform: translate(-50%, -50%) scale(1) rotate(-6deg); opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: translate(calc(-50% + 34vw), calc(-50% - 38vh)) scale(0.18) rotate(14deg); opacity: 0; }
+}
+
+@keyframes wind-fly {
+  0%   { transform: translate(-50%, -50%) scale(1) rotate(-8deg); opacity: 1; }
+  55%  { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--wind-end-x, 0px)), calc(-50% + var(--wind-end-y, 0px))) scale(0.2) rotate(14deg); opacity: 0; }
+}
+
+@keyframes vortex-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes tether-drift {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -30; }
+}
+
+.page .garden-zone {
+  transition: none;
+}
+
+
+.page.theme-spring .player-garden {
+  color: #5b2944;
+}
+
+.page.theme-spring::before,
+.page.theme-winter::before,
+.page.theme-summer::before,
+.page.theme-autumn::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.page.theme-winter::before {
+  background: radial-gradient(circle at 50% 20%, rgba(255,255,255,0.45), transparent 32%), linear-gradient(180deg, rgba(255,255,255,0.12), rgba(190,230,255,0.16));
+}
+
+.page.theme-summer::before {
+  background: radial-gradient(circle at 50% 12%, rgba(255,242,165,0.22), transparent 28%), radial-gradient(circle at 72% 16%, rgba(255,168,76,0.14), transparent 18%);
+}
+
+.page.theme-autumn::before {
+  background: radial-gradient(circle at 50% 8%, rgba(255,181,94,0.18), transparent 30%), radial-gradient(circle at 18% 82%, rgba(241,109,94,0.12), transparent 22%);
+}
+
+.hand-card-fan.is-drag-origin {
+  opacity: 0.12;
+}
+
+
+.page.theme-winter .player-garden,
+.page.theme-winter .icon-btn,
+.page.theme-winter .pill,
+.page.theme-winter .garden-empty-slot {
+  color: #17324d;
+}
+
+.page.theme-winter .player-garden,
+.page.theme-winter .icon-btn {
+  box-shadow: 0 10px 28px rgba(44, 123, 229, 0.12);
+}
+
+.page.layout-compact {
+  overflow: visible;
+  font-size: 0.92rem;
+}
+
+
+.page.layout-compact .lobby-shell {
+  overflow: visible;
+  min-height: 100dvh;
+}
+
+.page.layout-compact .board-arena-radial {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 8px !important;
+  overflow: visible;
+}
+
+.page.layout-compact .arena-core-ui {
+  width: 260px;
+  height: auto;
+  max-height: 144px;
+}
+
+
+@media (max-width: 900px) {
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .page,
+  .lobby-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .page {
+    padding: 8px;
+    padding-bottom: calc(12px + var(--safe-inset-b));
+  }
+
+  .lobby-card {
+    height: auto;
+    min-height: calc(100dvh - 16px);
+  }
+
+  .lobby-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lobby-hero .icon-btn {
+    align-self: stretch;
+  }
+
+  .board-arena-radial {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    position: relative;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 8px !important;
+    overflow: visible;
+    gap: 12px;
+  }
+
+  .arena-core-ui {
+    width: 260px;
+    height: auto;
+    max-height: 144px;
+  }
+
+  .garden-grid {
+    gap: 0;
+    width: min(calc(100% - 26px), 480px);
+    max-width: min(calc(100% - 26px), 480px);
+    padding-top: 6px;
+    transform: translateY(4px);
+  }
+
+  .hand-card-fan {
+    margin-left: -10px;
+  }
+
+  .hand-card-fan:first-child {
+    margin-left: 0;
+  }
+
+  .card-chip.small { width: 40px; height: 56px; }
+
+  .icon-btn {
+    width: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --card-chip-w: 52px;
+    --card-chip-h: 70px;
+  }
+
+  .page {
+    padding: 6px;
+    padding-bottom: calc(10px + var(--safe-inset-b));
+  }
+
+  .lobby-shell {
+    padding: 6px;
+  }
+
+  .lobby-card {
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .lobby-card .lobby-panel {
+    padding: 12px !important;
+  }
+
+  .lobby-card h1 {
+    font-size: clamp(72px, 8vw, 90px) !important;
+  }
+
+  .lobby-actions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-room-title-row {
+    flex-direction: column;
+  }
+
+  .lobby-room-seats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lobby-room-actions button,
+  .lobby-hero .icon-btn {
+    width: 100%;
+  }
+
+  .board-arena-radial {
+    margin: 6px !important;
+  }
+
+  .player-garden {
+    min-height: 146px;
+  }
+
+  .garden-empty-slot {
+    min-height: 48px;
+    width: min(116px, 78%);
+    font-size: 39px;
+  }
+
+  .garden-grid.is-empty .garden-empty-slot {
+    width: min(112px, 74%);
+    top: 56%;
+  }
+
+  .pill {
+    font-size: 33px;
+    padding: 3px 10px;
+  }
+  h1.app-title { font-size: 78px !important; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   V2 SHELL — Single-viewport grid layout
+   ══════════════════════════════════════════════════════════════ */
+
+:root {
+  --v2-action-h: 300px;
+  --v2-footer-h: 0px;
+}
+
+.v2-shell {
+  display: grid !important;
+  grid-template-rows: 1fr auto;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "play"
+    "action";
+  height: 100dvh;
+  width: 100%;
+  max-width: 100vw;
+  max-width: 100dvw;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  min-height: unset !important;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  font-size: 39px;
+  position: relative;
+  isolation: isolate;
+  background: #faf5f7;
+}
+
+.v2-header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid rgba(205,159,189,0.3);
+  background: rgba(255,250,253,0.92);
+  z-index: 10;
+  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.v2-header-left { display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.v2-header-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; }
+.v2-header-right { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 33px; color: #7d5470; }
+.v2-header-right > span { white-space: nowrap; }
+.v2-deck-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.v2-deck-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.v2-drawer {
+  position: absolute;
+  top: 10px;
+  bottom: calc(var(--v2-action-h) + var(--v2-footer-h) + 10px);
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+  z-index: 16;
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+.v2-drawer.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.v2-chat-drawer {
+  left: 10px;
+  width: min(280px, calc(100vw - 24px));
+  flex-direction: row;
+  transform: translateX(-12px);
+}
+.v2-chat-drawer.is-open { transform: translateX(0); }
+.v2-log-drawer {
+  right: 10px;
+  width: min(260px, calc(100vw - 24px));
+  flex-direction: row-reverse;
+  transform: translateX(12px);
+}
+.v2-log-drawer.is-open { transform: translateX(0); }
+.v2-badge {
+  position: absolute; top: 6px; right: 3px;
+  background: #e94560; color: white; font-size: 24px; font-weight: 900;
+  width: 14px; height: 14px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+
+.v2-drawer-content {
+  flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column;
+  background: rgba(20,10,32,0.985); border-right: 1px solid rgba(80,40,100,0.35);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 16px;
+  box-shadow: 0 16px 36px rgba(10, 8, 22, 0.4);
+}
+.v2-log-drawer .v2-drawer-content { border-right: none; border-left: 1px solid rgba(80,40,100,0.35); }
+.v2-chat-msgs { flex: 1; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; min-height: 0; }
+.v2-chat-composer { flex: 0 0 auto; display: flex; gap: 4px; padding: 5px 6px; border-top: 1px solid rgba(80,40,100,0.3); background: rgba(18,8,28,0.995); }
+.v2-chat-input { flex: 1; font-size: 33px; padding: 4px 7px; border-radius: 8px; border: 1px solid rgba(100,60,140,0.5); background: rgba(34,16,52,0.98); color: rgba(230,210,245,0.9); resize: none; font-family: inherit; min-height: 26px; max-height: 52px; line-height: 1.3; }
+.v2-chat-input::placeholder { color: rgba(160,120,190,0.5); }
+
+.v2-log-inner {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  border-radius: 16px;
+  background: rgba(20,10,32,0.985);
+  border: 1px solid rgba(80,40,100,0.35);
+  box-shadow: 0 16px 36px rgba(10, 8, 22, 0.4);
+}
+.v2-log-entry { font-size: 36px; color: rgba(220,200,240,0.8); padding: 3px 0; border-bottom: 1px solid rgba(80,40,100,0.2); line-height: 1.35; }
+.v2-log-entry:last-child { border-bottom: none; }
+
+/* ── Garden chat bubble ──────────────────────────────────────── */
+.garden-chat-bubble {
+  position: absolute;
+  top: 76px;
+  left: 50%;
+  background: rgba(14,8,26,0.94);
+  color: rgba(235,215,255,0.96);
+  font-size: 30px;
+  line-height: 1.25;
+  text-align: center;
+  padding: 5px 9px;
+  border-radius: 14px;
+  border: 1px solid rgba(140,80,200,0.3);
+  white-space: normal;
+  max-width: min(120px, calc(100% - 42px));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,126,182,0.15);
+  pointer-events: none;
+  z-index: 12;
+  animation: garden-bubble 4s ease forwards;
+}
+
+@keyframes garden-bubble {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.88); }
+  10%  { opacity: 1; transform: translateX(-50%) translateY(0)   scale(1); }
+  80%  { opacity: 1; transform: translateX(-50%) translateY(0)   scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.92); }
+}
+
+.v2-playfield { grid-area: play; position: relative; overflow: visible; min-width: 0; min-height: 0; max-width: 100%; }
+.v2-playfield .board-arena-radial { position: absolute !important; inset: 0 !important; margin: 0 !important; height: 100% !important; min-height: 0 !important; overflow: visible !important; }
+
+/* ===== GARDEN RADIAL POSITIONING (fixes stacked gardens) ===== */
+.arena-pan-stage {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+  transform: translate(var(--arena-pan-x, 0px), var(--arena-pan-y, 0px));
+}
+.arena-zoom-stage {
+  position: absolute;
+  inset: 0;
+  transform: scale(var(--arena-zoom, 1));
+  transform-origin: center center;
+}
+.player-garden.is-current-turn { z-index: 5; }
+.player-garden.is-targeted { z-index: 6; }
+
+.arena-overlay-controls {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 18;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.arena-corner-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid rgba(205,159,189,0.36);
+  border-radius: 999px;
+  background: rgba(255,250,253,0.92);
+  box-shadow: 0 8px 20px rgba(91,41,68,0.12);
+  font-family: inherit;
+  font-size: 33px;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.arena-corner-btn.is-open {
+  box-shadow: 0 0 0 2px rgba(255,126,182,0.2), 0 10px 22px rgba(91,41,68,0.16);
+}
+
+.arena-corner-btn__icon {
+  font-size: 39px;
+  line-height: 1;
+}
+
+.arena-corner-btn__label {
+  line-height: 1;
+}
+
+.arena-corner-btn__badge {
+  top: -4px;
+  right: -2px;
+}
+
+.arena-log-toast {
+  position: absolute;
+  top: 48px;
+  right: 10px;
+  z-index: 17;
+  max-width: min(280px, calc(100% - 20px));
+  padding: 7px 11px;
+  border-radius: 12px;
+  border: 1px solid rgba(205,159,189,0.32);
+  box-shadow: 0 14px 32px rgba(10, 8, 22, 0.28);
+  font-size: 33px;
+  font-weight: 600;
+  line-height: 1.35;
+  animation: arena-log-toast 5s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes arena-log-toast {
+  0% { opacity: 0; transform: translateY(-6px) scale(0.96); }
+  12% { opacity: 1; transform: translateY(0) scale(1); }
+  90% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-4px) scale(0.98); }
+}
+
+.arena-quick-chat-anchor {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 18;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.arena-quick-chat-panel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border-radius: 18px;
+  box-shadow: 0 14px 34px rgba(10, 8, 22, 0.28);
+}
+
+.arena-quick-chat-btn,
+.arena-quick-chat-option {
+  border: 1px solid rgba(205,159,189,0.36);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.arena-quick-chat-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  background: rgba(255,250,253,0.94);
+  box-shadow: 0 10px 24px rgba(91,41,68,0.16);
+  font-size: 60px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.arena-quick-chat-btn.is-open {
+  box-shadow: 0 0 0 2px rgba(255,126,182,0.18), 0 10px 24px rgba(91,41,68,0.2);
+}
+
+.arena-quick-chat-option {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.9);
+  font-size: 60px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.arena-quick-chat-option:hover {
+  transform: translateY(-1px);
+  background: rgba(255,238,247,0.96);
+}
+
+.v2-action-overlay {
+  position: absolute; inset: 0; z-index: 50;
+  display: flex; align-items: flex-end; padding: 8px;
+  pointer-events: none; /* Let touches pass through to garden */
+  opacity: 0;
+  animation: action-overlay-fade-in 0.35s ease forwards;
+}
+
+/* Blessing phase: center the panel, no tint */
+.v2-action-overlay.is-blessing {
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  backdrop-filter: none;
+  padding: 0;
+}
+
+.v2-action-overlay.is-blessing .v2-action-sheet {
+  background: transparent !important;
+  border: none !important;
+  backdrop-filter: none !important;
+  overflow: visible !important;
+  max-height: none !important;
+  padding: 0 !important;
+}
+
+@keyframes action-overlay-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.v2-action-overlay > * {
+  pointer-events: auto; /* Only sheet captures events */
+}
+.v2-action-sheet {
+  width: 100%; max-height: calc(100% - 8px); overflow-y: auto;
+  background: rgba(255,250,253,0.97) !important; border: 1px solid rgba(205,159,189,0.4) !important;
+}
+
+.v2-action-row {
+  grid-area: action; display: grid; grid-template-columns: 1fr; grid-template-rows: auto auto;
+  border-top: none; background: transparent !important;
+  backdrop-filter: none; overflow: visible; min-width: 0; min-height: 0; max-width: 100%; position: relative; z-index: 20;
+  padding-bottom: 20px;
+}
+.v2-moves-panel { border-right: none; padding: 5px 7px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.v2-move-btn { background: rgba(255,255,255,0.72); border: 1px solid rgba(205,159,189,0.36); border-radius: 8px; padding: 3px 6px; font-size: 39px; cursor: pointer; font-family: inherit; min-height: 26px; line-height: 1; white-space: nowrap; color: #5b2944; transition: background 120ms; }
+.v2-move-btn:hover { background: rgba(255,126,182,0.18); }
+.v2-move-btn--pass { background: rgba(233, 69, 96, 0.15) !important; border-color: rgba(233, 69, 96, 0.4) !important; color: #9e2a3b !important; font-weight: 700; }
+.v2-move-btn--pass:hover { background: rgba(233, 69, 96, 0.28) !important; }
+.v2-end-turn-btn { background: rgba(233, 69, 96, 0.15); border: 1px solid rgba(233, 69, 96, 0.4); border-radius: 8px; padding: 4px 10px; font-size: 36px; cursor: pointer; font-family: inherit; color: #9e2a3b; font-weight: 700; white-space: nowrap; transition: background 120ms; }
+.v2-end-turn-btn:hover { background: rgba(233, 69, 96, 0.28); }
+
+/* ── Player Action Bubble (Chat + Emoji + Pass) ──────────── */
+.player-action-bubble {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.action-bubble-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid rgba(205,159,189,0.36);
+  background: rgba(255,255,255,0.85);
+  box-shadow: 0 6px 18px rgba(91,41,68,0.14);
+  font-size: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  position: relative;
+}
+.action-bubble-btn:hover {
+  transform: scale(1.08);
+  background: rgba(255,255,255,0.98);
+  box-shadow: 0 8px 24px rgba(91,41,68,0.22);
+}
+.action-bubble-btn--pass {
+  background: rgba(233, 69, 96, 0.18);
+  border-color: rgba(233, 69, 96, 0.45);
+}
+.action-bubble-btn--pass:hover {
+  background: rgba(233, 69, 96, 0.32);
+}
+.action-bubble-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #e94560;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.action-bubble-quick-chat {
+  position: fixed;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 101;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border-radius: 14px;
+  box-shadow: 0 14px 34px rgba(10, 8, 22, 0.28);
+}
+.action-bubble-quick-chat-option {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: none;
+  background: rgba(255,255,255,0.9);
+  font-size: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease;
+}
+.action-bubble-quick-chat-option:hover {
+  transform: scale(1.12);
+  background: #fff;
+}
+
+@media (max-width: 640px) {
+  .player-action-bubble { bottom: 8px; }
+  .action-bubble-quick-chat { bottom: 60px; }
+}
+
+.v2-hand-dock {
+  --card-chip-w: 62px;
+  --card-chip-h: 84px;
+  position: relative;
+  padding: 7px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: visible;
+  min-width: 0;
+  z-index: 30;
+  background: transparent !important;
+  border-top: none !important;
+  box-shadow: none !important;
+}
+.v2-hand-dock.is-play-turn .v2-hand-row .card-chip.draggable { touch-action: none; }
+.v2-hand-dock.is-reorder-turn .v2-hand-row .card-chip.draggable { touch-action: none; }
+@keyframes v2-timer-pulse { 0%,100%{opacity:1} 50%{opacity:.55} }
+
+.v2-timer-pill {
+  position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 20px;
+  white-space: nowrap; pointer-events: none;
+  box-shadow: 0 2px 12px rgba(120,65,108,0.15);
+}
+.v2-timer-pill-name { font-size: 33px; font-weight: 600; }
+.v2-timer-pill-clock { font-size: 45px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.v2-timer-pill-total { font-size: 30px; font-weight: 700; opacity: 0.88; font-variant-numeric: tabular-nums; }
+.v2-timer-pill.is-urgent .v2-timer-pill-clock { color: #e94560 !important; animation: v2-timer-pulse 1s ease-in-out infinite; }
+.v2-timer-pill-moves { font-size: 30px; }
+
+/* Dark season themes */
+.v2-shell.theme-winter .v2-header,
+.v2-shell.theme-winter .v2-action-row { background: rgba(255,255,255,0.92); color: #17324d; }
+
+.v2-shell.theme-summer .v2-header,.v2-shell.theme-summer .v2-action-row,
+.v2-shell.theme-autumn .v2-header,.v2-shell.theme-autumn .v2-action-row
+{ background: rgba(22,33,62,0.92); border-color: #0f3460; color: #eee; }
+
+.v2-shell.theme-summer .v2-drawer-content,.v2-shell.theme-autumn .v2-drawer-content
+{ background: rgba(22,33,62,0.98); border-color: #0f3460; }
+
+.v2-shell.theme-winter .v2-drawer-content
+{ background: rgba(235,244,252,0.985); border-color: rgba(75,126,171,0.32); }
+
+.v2-shell.theme-winter .v2-chat-composer
+{ background: rgba(226,239,250,0.995); border-top-color: rgba(75,126,171,0.24); }
+
+.v2-shell.theme-winter .v2-chat-input
+{ background: rgba(255,255,255,0.98); border-color: rgba(75,126,171,0.28); color: #17324d; }
+
+.v2-shell.theme-winter .v2-chat-input::placeholder
+{ color: rgba(56,92,128,0.58); }
+
+.v2-shell.theme-winter .v2-log-entry,
+.v2-shell.theme-winter .v2-chat-bubble,
+.v2-shell.theme-winter .v2-chat-meta
+{ color: #17324d; }
+
+.v2-shell.theme-summer .v2-log-entry,
+.v2-shell.theme-autumn .v2-log-entry
+{ color: #eee; }
+
+.v2-shell.theme-summer .v2-move-btn,.v2-shell.theme-autumn .v2-move-btn
+{ background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.14); color: #eee; }
+
+.v2-shell.theme-summer .v2-chat-input,.v2-shell.theme-autumn .v2-chat-input
+{ background: rgba(22,33,62,0.9); border-color: #0f3460; color: #eee; }
+
+.v2-shell.theme-summer .v2-chat-input::placeholder,.v2-shell.theme-autumn .v2-chat-input::placeholder
+{ color: #6688aa; }
+
+/* ── v2 missing classes ─────────────────────────────────────── */
+.v2-move-buttons { display: flex; flex-wrap: wrap; gap: 3px; }
+
+.v2-chat-row { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.v2-chat-row.is-me { align-items: flex-end; }
+.v2-chat-meta { font-size: 27px; color: #9d6b87; display: flex; gap: 6px; }
+.v2-chat-bubble { font-size: 33px; padding: 4px 8px; border-radius: 10px; max-width: 90%; line-height: 1.4; word-break: break-word; }
+.v2-modal-backdrop { position: fixed; inset: 0; padding: 12px; background: rgba(0,0,0,0.45); z-index: 200; display: flex; align-items: center; justify-content: center; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.v2-modal { border-radius: 16px; min-width: 280px; max-width: 420px; width: min(90vw, 1260px); max-height: min(88dvh, 2280px); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.35); margin: auto; }
+.v2-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; }
+.v2-modal-body { padding: 16px; font-size: 39px; line-height: 1.5; overflow-y: auto; min-height: 0; }
+.v2-modal--results { width: min(94vw, 1260px); }
+.v2-modal-body--results { padding: 12px; font-size: 33px; line-height: 1.35; }
+.v2-results-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
+.v2-results-summary-card { min-width: 0; padding: 8px 9px; border-radius: 12px; }
+.v2-results-summary-label { margin-bottom: 2px; font-size: 6.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.v2-results-summary-value { font-size: 8.5px; font-weight: 800; line-height: 1.3; }
+.v2-results-section-label { margin-bottom: 6px; font-size: 21px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.v2-results-player-list { display: grid; gap: 8px; }
+.v2-results-player-card { border-radius: 14px; padding: 9px; }
+.v2-results-player-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.v2-results-player-name { font-size: 27px; font-weight: 800; line-height: 1.25; }
+.v2-results-player-meta { font-size: 6.5px; line-height: 1.35; }
+.v2-results-player-badge { flex-shrink: 0; padding: 3px 6px; border-radius: 999px; font-size: 6.5px; font-weight: 800; letter-spacing: 0.08em; }
+.v2-results-player-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
+.v2-results-player-stat-label { margin-bottom: 2px; font-size: 6.5px; line-height: 1.25; }
+.v2-results-player-stat-value { font-size: 24px; font-weight: 800; line-height: 1.25; }
+.v2-results-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.v2-results-actions button { min-height: 30px !important; padding: 7px 10px !important; font-size: 24px !important; }
+
+@media (min-width: 560px) {
+  .v2-results-summary-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .v2-results-player-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 540px) {
+  .v2-modal-backdrop {
+    align-items: flex-start;
+  }
+
+  .v2-modal {
+    width: min(96vw, 1260px);
+    max-height: min(92dvh, 2280px);
+  }
+}
+
+/* ── v2-shell garden radial override (beats all media-query !important rules) ── */
+.v2-shell .board-arena-radial {
+  display: block !important;
+  position: absolute !important;
+  inset: 0 !important;
+  margin: 0 !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+  gap: 0 !important;
+}
+.waiting-room-shell {
+  width: 100%;
+  max-width: 100vw;
+  max-width: 100dvw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(36px, 4vw, 72px);
+  padding-bottom: calc(clamp(36px, 4vw, 72px) + var(--safe-inset-b));
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.waiting-room-panel {
+  width: min(920px, 100%);
+  max-width: 100%;
+  min-width: 0;
+  padding: clamp(36px, 3vw, 56px);
+  display: grid;
+  gap: 22px;
+  margin: auto;
+  position: relative;
+  z-index: 1;
+}
+
+.waiting-room-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: start;
+}
+.waiting-room-heading {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.waiting-room-kicker {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.waiting-room-rules-caption {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+  margin-bottom: 10px;
+}
+
+.waiting-room-title {
+  margin: 6px 0 4px;
+  font-size: clamp(72px, 6vw, 96px);
+  line-height: 1.05;
+}
+
+.waiting-room-subtitle {
+  font-size: 39px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.waiting-room-seat-card {
+  border-radius: 20px;
+}
+
+.waiting-room-seat-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.waiting-room-seat-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.waiting-room-seat-card {
+  padding: 18px 20px;
+}
+
+.waiting-room-seat-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.waiting-room-seat-index {
+  font-size: 36px;
+  white-space: nowrap;
+}
+
+.waiting-room-seat-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.waiting-room-badge {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 33px;
+  font-weight: 700;
+}
+
+.waiting-room-seat-name {
+  margin-top: 10px;
+  font-size: 54px;
+  font-weight: 800;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.waiting-room-kick-btn {
+  margin-top: 8px;
+  padding: 4px 10px;
+  font-size: 36px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid rgba(233, 69, 96, 0.35);
+  background: rgba(233, 69, 96, 0.08);
+  color: #c43a50;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.waiting-room-kick-btn:hover {
+  background: rgba(233, 69, 96, 0.18);
+  border-color: rgba(233, 69, 96, 0.55);
+}
+
+.waiting-room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.waiting-room-btn-primary,
+.waiting-room-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 32px;
+  border-radius: 999px;
+  font: 800 42px/1 var(--font-playful);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+}
+
+.waiting-room-btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+}
+
+.waiting-room-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.waiting-room-btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.waiting-room-btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+}
+
+/* ===== ACTION ANIMATION OVERLAY ===== */
+/* ── Flower Hover / Target Styles ─────────────────────────────── */
+
+/* Neighbor flowers in same set — gently pushed away */
+
+/* Floating card animation for power card plays */
+@keyframes cardFloatIn {
+  from { opacity: 0; transform: scale(0.5) translateY(40px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes cardPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+/* ===== HEARTHSTONE-STYLE HAND ARC ===== */
+.hs-hand-container {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 220px;
+  padding-bottom: 30px;
+  overflow-x: auto;
+  overflow-y: visible;
+  touch-action: pan-x;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.hs-hand-container::-webkit-scrollbar {
+  display: none;
+}
+
+.hs-hand-container .card-chip {
+  flex-shrink: 0;
+  margin: 0 -6px;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), 
+              margin 0.25s ease,
+              z-index 0s;
+  transform-origin: bottom center;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.4));
+  background: #e2e2e2;
+  border-color: #ededed;
+}
+
+/* Per-card arc is handled by inline transforms on .hand-card-fan in JSX.
+   The old .card-chip:nth-child() selectors were broken because cards are
+   wrapped in .hand-card-fan, making every card match :nth-child(1). */
+
+/* Hover — lift and center with delay to prevent flicker */
+.hs-hand-container .card-chip:hover,
+.hs-hand-container .card-chip:active {
+  transform: scale(1.15) translateY(-30px) rotate(0deg) !important;
+  z-index: 100 !important;
+  margin: 0 4px;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s, 
+              margin 0.3s ease 0.15s,
+              z-index 0s;
+}
+
+/* Drag origin card */
+.hs-hand-container .card-chip.is-drag-origin {
+  opacity: 0.3;
+}
+
+/* Draw fly animation — back_art.png flies from deck to hand */
+.draw-fly-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1400;
+}
+.draw-fly-card {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  width: 140px;
+  height: auto;
+  aspect-ratio: 750 / 1050;
+  border-radius: 10px;
+  box-shadow: 0 10px 32px rgba(0,0,0,0.5);
+  animation: draw-fly 1000ms cubic-bezier(.2,.7,.2,1) forwards;
+  transform-origin: center center;
+  pointer-events: none;
+}
+@keyframes draw-fly {
+  0%   { transform: translate(calc(-50% + var(--fly-x, 0px)), -50%) scale(1) rotate(0deg); opacity: 1; }
+  75%  { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--fly-x, 0px)), calc(-50% + 48vh)) scale(0.75) rotate(10deg); opacity: 0; }
+}
+
+/* Hand card reveal — syncs with draw-fly landing */
+.hand-card-fan.is-drawing-in .card-chip {
+  opacity: 0;
+  animation: card-draw-reveal 500ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: var(--draw-delay, 0ms);
+}
+@keyframes card-draw-reveal {
+  0%   { opacity: 0; transform: scale(0.35) translateY(-70px); filter: brightness(1.5); }
+  60%  { opacity: 1; transform: scale(1.08) translateY(4px); filter: brightness(1); }
+  100% { opacity: 1; transform: scale(1) translateY(0); filter: brightness(1); }
+}
+
+/* Mobile adjustments */
+@media (max-width: 600px) {
+  .hs-hand-container {
+    height: 150px;
+    padding-bottom: 20px;
+  }
+  .hs-hand-container .card-chip {
+    margin: 0 -6px;
+    transform: scale(0.85);
+    transform-origin: bottom center;
+    background: #2a2a2a;
+    border-color: #666666;
+  }
+
+  .hs-hand-container .card-chip:hover,
+  .hs-hand-container .card-chip:active {
+    transform: scale(1.1) translateY(-20px) rotate(0deg) !important;
+    margin: 0 2px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s,
+                margin 0.3s ease 0.15s;
+  }
+}
+.v2-shell .player-garden {
+  width: var(--pg-w, 520px) !important;
+  height: var(--pg-h, 400px) !important;
+  padding: 12px !important;
+  box-sizing: border-box !important;
+}
+@media (max-width: 600px) {
+  .v2-shell .player-garden {
+    width: min(var(--pg-w, 520px), 52vw) !important;
+    height: min(var(--pg-h, 400px), 24vh) !important;
+    padding: 10px !important;
+  }
+}
+@media (min-width: 601px) and (max-width: 900px) {
+  .v2-shell .player-garden {
+    width: min(var(--pg-w, 520px), 46vw) !important;
+    height: min(var(--pg-h, 400px), 24vh) !important;
+    padding: 10px !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .waiting-room-shell {
+    align-items: flex-start;
+    justify-content: stretch;
+    padding-inline: 10px;
+  }
+
+  .waiting-room-panel {
+    width: 100%;
+    margin: 0;
+  }
+
+  .waiting-room-seat-grid {
+    order: 3;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .waiting-room-panel {
+    border-radius: 20px;
+    gap: 14px;
+  }
+
+  .waiting-room-rules,
+  .waiting-room-seat-card {
+    padding: 14px;
+  }
+
+  .waiting-room-seat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .waiting-room-seat-top {
+    align-items: flex-start;
+  }
+}
+
+/* Fix mobile drag: disable browser scroll interference during play */
+.v2-hand-dock.is-play-turn .v2-hand-row {
+  touch-action: pan-x;
+}
+.v2-hand-dock.is-reorder-turn .v2-hand-row {
+  touch-action: pan-x;
+}
+
+/* Only individual draggable cards block scroll gestures */
+.v2-hand-dock.is-play-turn .v2-hand-row .card-chip.draggable {
+  touch-action: none;
+}
+.v2-hand-dock.is-reorder-turn .v2-hand-row .card-chip.draggable {
+  touch-action: none;
+}
+
+/* ── Action Zone ───────────────────────────────────────────── */
+.action-zone {
+  position: fixed;
+  left: 50%;
+  bottom: 140px;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  border-radius: 32px;
+  background: rgba(0, 0, 0, 0.7);
+  pointer-events: auto;
+}
+
+.action-zone-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.action-zone-btn:hover {
+  transform: scale(1.08);
+}
+
+.action-zone-btn:active {
+  transform: scale(0.95);
+}
+
+.action-zone-btn--cancel {
+  border-color: var(--danger);
+  color: var(--danger);
+  font-size: 72px;
+}
+
+.action-zone-btn--cancel:hover {
+  background: var(--danger);
+  color: var(--panel);
+}
+
+.action-zone-btn--double {
+  border-color: var(--accent-3);
+  color: var(--accent-3);
+  font-size: 54px;
+}
+
+.action-zone-btn--double:hover {
+  background: var(--accent-3);
+  color: var(--panel);
+}
+
+.action-zone-btn--confirm {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-size: 72px;
+}
+
+/* ── Discard Pile (hidden animation target, screen-space) ──── */
+.discard-pile {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 60px;
+  height: 60px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+}
+
+/* ── Discard Pile Firework ─────────────────────────────────── */
+
+@keyframes discard-firework-fly {
+  0% {
+    transform: translate(0, 60vh) scale(1.2) rotate(-10deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(0, 0) scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes discard-firework-explode {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+}
+
+@keyframes discard-particle-burst {
+  0% {
+    transform: rotate(var(--particle-angle)) translateX(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(var(--particle-angle)) translateX(70px) scale(0);
+    opacity: 0;
+  }
+}
+
+@keyframes discard-ghost-fade {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  60% {
+    opacity: 0.6;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.1);
+  }
+}
+
+/* Discard history modal */
+
+@keyframes discard-modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes discard-modal-slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ── Counter Window ────────────────────────────────────────── */
+.counter-window-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0);
+  transition: background 0.3s ease;
+}
+
+.counter-window-overlay.counter-window--enter {
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.counter-window-overlay.counter-window--exit {
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0);
+}
+
+.counter-window-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 28px 32px;
+  min-width: 280px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  transform: scale(0.8);
+  opacity: 0;
+  transition: transform 0.3s cubic-bezier(.2, .7, .2, 1), opacity 0.25s ease;
+  pointer-events: auto;
+}
+
+.counter-window--enter .counter-window-panel {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.counter-window--exit .counter-window-panel {
+  transform: scale(0.9);
+  opacity: 0;
+}
+
+.counter-window-cast {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.counter-window-cast-label {
+  font-size: 42px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: capitalize;
+}
+
+.counter-window-targets {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.counter-window-target-flower {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.counter-window-timer {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.counter-window-timer-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 1s linear, background 0.3s ease;
+}
+
+.counter-window-timer-text {
+  position: absolute;
+  right: 0;
+  top: -18px;
+  font-size: 33px;
+  font-weight: 700;
+}
+
+.counter-window-counters {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.counter-window-counters-label {
+  font-size: 36px;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.counter-window-counters-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.counter-window-counter-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  min-width: 72px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 36px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.counter-window-counter-btn:hover {
+  transform: scale(1.05);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent);
+}
+
+.counter-window-counter-btn:active {
+  transform: scale(0.97);
+}
+
+.counter-window-counter-icon {
+  font-size: 60px;
+}
+
+.counter-window-counter-count {
+  font-size: 30px;
+  color: var(--accent-3);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.counter-window-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.counter-window-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid;
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 700;
+  font-size: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.counter-window-btn:hover {
+  transform: scale(1.08);
+}
+
+.counter-window-btn:active {
+  transform: scale(0.95);
+}
+
+.counter-window-btn--cancel {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.counter-window-btn--cancel:hover {
+  background: var(--danger);
+  color: var(--panel);
+}
+
+.counter-window-btn--confirm {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.counter-window-btn--confirm:hover {
+  background: var(--accent);
+  color: var(--panel);
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   RADIAL GARDEN POSITIONING — Desktop
+   MUST REMAIN LAST IN FILE TO WIN SPECIFICITY WARS
+   ══════════════════════════════════════════════════════════════ */
+@media (min-width: 641px) {
+  html body .v2-shell.page .board-arena-radial {
+    overflow: visible !important;
+  }
+
+  html body .v2-shell.page .player-garden {
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: var(--pg-w, 520px) !important;
+    height: var(--pg-h, 400px) !important;
+    transform: translate(
+      calc(-50% + var(--pg-x, 0px)),
+      calc(-50% + var(--pg-y, 0px))
+    ) !important;
+    overflow: visible !important;
+  }
+
+  /* Prevent edge gardens from clipping during pan */
+  html body .v2-shell.page .arena-pan-stage {
+    width: 200%;
+    height: 200%;
+    left: -50%;
+    top: -50%;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE RADIAL — Clean override (must be LAST in file)
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+  .garden-set-hover-zone {
+    min-width: 100px !important;
+    min-height: 100px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  html body .v2-shell.page .board-arena-radial {
+    display: block !important;
+    position: absolute !important;
+    inset: 0 !important;
+    margin: 0 !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Mobile zoom is now driven by JS density-aware auto-zoom via --arena-zoom */
+  html body .v2-shell.page .arena-zoom-stage {
+    transform: scale(var(--arena-zoom, 0.55)) !important;
+    transform-origin: center center !important;
+  }
+
+  html body .v2-shell.page .player-garden {
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: var(--pg-w, 280px) !important;
+    height: var(--pg-h, 220px) !important;
+    transform: translate(
+      calc(-50% + var(--pg-x, 0px)),
+      calc(-50% + var(--pg-y, 0px))
+    ) !important;
+    overflow: visible !important;
+  }
+
+  html body .v2-shell.page .card-chip {
+    --card-chip-w: 38px !important;
+    --card-chip-h: 52px !important;
+  }
+
+  /* Larger gutters between hand cards so users can scroll without accidentally grabbing a card */
+  html body .v2-shell.page .v2-hand-dock .v2-hand-row .card-chip {
+    margin: 6px 8px !important;
+  }
+}
+
+/* ── Coin Flip Overlay ───────────────────────────────────── */
+
+/* Post-flip: transparent backdrop — game board stays visible */
+.coin-flip-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* Wrapper handles scale-up + fade-out */
+.coin-flip-coin-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  transition:
+    transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.5s ease;
+}
+
+/* Result text (HEADS! / TAILS!) */
+.coin-flip-result {
+  font-size: 48px;
+  font-weight: 900;
+  color: #e6c84a;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  transform: translateY(20px) scale(0.8);
+  transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+
+.coin-flip-result--show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.coin-flip-coin-wrapper--landed {
+  transform: scale(1.6);
+}
+
+.coin-flip-coin-wrapper--fade {
+  opacity: 0;
+}
+
+/* 3D Coin */
+.coin-container {
+  perspective: 800px;
+  width: 180px;
+  height: 180px;
+  pointer-events: auto;
+}
+
+.coin {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.coin-face {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow:
+    inset 0 0 20px rgba(255, 255, 255, 0.15),
+    0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.coin-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.coin-face--head {
+  transform: rotateY(0deg);
+}
+
+.coin-face--tail {
+  transform: rotateY(180deg);
+}
+
+/* Settled states (used when animation has already finished) */
+.coin--heads.coin--settled {
+  transform: rotateY(2160deg);
+}
+
+.coin--tails.coin--settled {
+  transform: rotateY(2340deg);
+}
+
+/* Toss arc: coin flies up, tumbles, bounces, settles */
+@keyframes coin-toss-arc {
+  0%   { transform: translateY(0) rotateX(0deg); }
+  40%  { transform: translateY(-260px) rotateX(35deg); }
+  75%  { transform: translateY(30px) rotateX(-18deg); }
+  85%  { transform: translateY(-14px) rotateX(10deg); }
+  92%  { transform: translateY(5px) rotateX(-4deg); }
+  100% { transform: translateY(0) rotateX(0deg); }
+}
+
+/* Spin keyframes */
+@keyframes coin-spin-heads {
+  0%   { transform: rotateY(0deg) rotateZ(-4deg); }
+  25%  { transform: rotateY(540deg) rotateZ(3deg); }
+  50%  { transform: rotateY(1080deg) rotateZ(-2deg); }
+  75%  { transform: rotateY(1620deg) rotateZ(2deg); }
+  85%  { transform: rotateY(1800deg) rotateZ(-1deg); }
+  100% { transform: rotateY(2160deg) rotateZ(0deg); }
+}
+
+@keyframes coin-spin-tails {
+  0%   { transform: rotateY(0deg) rotateZ(-4deg); }
+  25%  { transform: rotateY(540deg) rotateZ(3deg); }
+  50%  { transform: rotateY(1080deg) rotateZ(-2deg); }
+  75%  { transform: rotateY(1620deg) rotateZ(2deg); }
+  85%  { transform: rotateY(1800deg) rotateZ(-1deg); }
+  100% { transform: rotateY(2340deg) rotateZ(0deg); }
+}
+
+/* ── Tap-to-Flip Trigger (Blessing Phase) ─────────────────── */
+
+.coin-flip-trigger {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  pointer-events: none;
+  animation: coin-trigger-fade-in 0.4s ease;
+}
+
+.coin-flip-trigger > * {
+  pointer-events: auto;
+}
+
+@keyframes coin-trigger-fade-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.coin-flip-tap-btn {
+  width: 180px;
+  height: 180px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  animation: coin-tap-pulse 2s ease-in-out infinite;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.5));
+  transition: transform 0.15s ease;
+}
+
+.coin-flip-tap-btn:hover {
+  transform: scale(1.06);
+}
+
+.coin-flip-tap-btn:active {
+  transform: scale(0.94);
+}
+
+.coin-flip-tap-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
+
+@keyframes coin-tap-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.coin-flip-hint {
+  color: #e6c84a;
+  font-size: 20px;
+  font-weight: 700;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  margin: 0;
+  animation: coin-hint-bounce 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes coin-hint-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* Mobile sizing */
+@media (max-width: 480px) {
+  .coin-container {
+    width: 140px;
+    height: 140px;
+  }
+
+  .coin-flip-tap-btn {
+    width: 140px;
+    height: 140px;
+  }
+
+  .coin-flip-hint {
+    font-size: 16px;
+  }
+
+  .coin-flip-coin-wrapper--landed {
+    transform: scale(1.4);
+  }
+}

@@ -44,12 +44,12 @@ function finalizeMoveResult(
   ctx: MoveCtx,
   result: ReturnType<typeof engine.applyAction> | ReturnType<typeof engine.allowAction> | ReturnType<typeof engine.autoTimeout>,
   prevIndex: number,
-  _rejectLabel: string,
   shouldEndStage = false
 ): typeof INVALID_MOVE | void {
   const { G, events } = ctx;
 
   if (!result.success || !result.state) {
+    // Invalid move error handled silently
     return INVALID_MOVE;
   }
 
@@ -81,7 +81,7 @@ function applyMove(
 ): typeof INVALID_MOVE | void {
   const prevIndex = ctx.G.currentPlayerIndex;
   const result = engine.applyAction(ctx.G, action);
-  return finalizeMoveResult(ctx, result, prevIndex, '[FlowerGame] move rejected:');
+  return finalizeMoveResult(ctx, result, prevIndex);
 }
 
 function applyCounterMove(
@@ -102,7 +102,7 @@ function applyCounterMove(
     result = engine.allowAction(G, stagePlayer);
   }
 
-  return finalizeMoveResult(ctx, result, prevIndex, '[FlowerGame] counter move rejected:', true);
+  return finalizeMoveResult(ctx, result, prevIndex, true);
 }
 
 function applyTimeoutMove(ctx: MoveCtx): typeof INVALID_MOVE | void {
@@ -112,7 +112,7 @@ function applyTimeoutMove(ctx: MoveCtx): typeof INVALID_MOVE | void {
   const prevIndex = ctx.G.currentPlayerIndex;
   const shouldEndStage = !!(ctx.ctx.activePlayers && actorId && ctx.ctx.activePlayers[actorId]);
   const result = engine.autoTimeout(ctx.G, actorId);
-  return finalizeMoveResult(ctx, result, prevIndex, '[FlowerGame] timeout auto-move rejected:', shouldEndStage);
+  return finalizeMoveResult(ctx, result, prevIndex, shouldEndStage);
 }
 
 function getJoinedPlayers(G: GameState): PlayerSetup[] {
@@ -294,6 +294,10 @@ export const FlowerGame: Game<GameState> = {
       });
     },
 
+    dismissCoinFlip({ G, ctx, playerID, events }) {
+      return applyMove({ G, ctx, playerID, events }, { type: 'dismiss_coin_flip', playerId: ctx.currentPlayer });
+    },
+
     // ── Draw ───────────────────────────────────────────────────
     pass({ G, ctx, playerID, events }) {
       return applyMove({ G, ctx, playerID, events }, { type: 'pass', playerId: ctx.currentPlayer });
@@ -305,11 +309,12 @@ export const FlowerGame: Game<GameState> = {
 
     // ── Planting ───────────────────────────────────────────────
     plantOwn({ G, ctx, playerID, events }, cardId: string, targetSetId?: string, chosenColor?: string) {
-      return applyMove({ G, ctx, playerID, events }, {
+      const result = applyMove({ G, ctx, playerID, events }, {
         type: 'plant_own', playerId: ctx.currentPlayer,
         cardIds: [cardId], targetSetId,
         chosenColor: chosenColor as GameAction['chosenColor'],
       });
+      return result;
     },
 
     plantOpponent({ G, ctx, playerID, events }, cardId: string, targetPlayerId: string, targetSetId?: string, chosenColor?: string) {

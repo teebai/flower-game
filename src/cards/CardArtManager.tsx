@@ -116,8 +116,8 @@ export function CardArtManager({ onClose }: Props) {
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 style={{ fontSize: 18, margin: 0, color: 'var(--text)' }}>🎨 Card Designs</h2>
-            <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: 12 }}>
+            <h2 style={{ fontSize: 54, margin: 0, color: 'var(--text)' }}>🎨 Card Designs</h2>
+            <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: 36 }}>
               Upload an image for each card. Designs are saved on this device. {filledCount} design{filledCount === 1 ? '' : 's'} set.
             </p>
           </div>
@@ -128,17 +128,17 @@ export function CardArtManager({ onClose }: Props) {
           {statusMessage && (
             <div style={{
               background: 'var(--panel-alt)', color: 'var(--accent)', padding: '8px 12px',
-              borderRadius: 8, marginBottom: 10, fontSize: 13,
+              borderRadius: 8, marginBottom: 10, fontSize: 39,
             }}>{statusMessage}</div>
           )}
           {error && (
             <div style={{
               background: '#4a1530', color: '#ff6b8a', padding: '8px 12px',
-              borderRadius: 8, marginBottom: 10, fontSize: 13,
+              borderRadius: 8, marginBottom: 10, fontSize: 39,
             }}>⚠️ {error}</div>
           )}
 
-          <p style={{ color: 'var(--text-hint)', fontSize: 13, lineHeight: 1.5, marginBottom: 4 }}>
+          <p style={{ color: 'var(--text-hint)', fontSize: 39, lineHeight: 1.5, marginBottom: 4 }}>
             Tip: Use portrait images (3:4 is ideal). Uploads are automatically resized to ~320 px to
             keep storage small. Use <b>Export</b> below to save a pack and share with other players —
             they can <b>Import</b> it to get the same designs.

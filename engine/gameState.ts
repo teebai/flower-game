@@ -72,6 +72,7 @@ export function createWaitingRoom(players: PlayerSetup[], config?: RoomConfig): 
     movesRemaining: 0,
     pendingAction: null,
     blessingState: null,
+    coinFlip: null,
     turnStartedAt: 0,
     turnTimeLimitSec: 60,
     winner: null,
@@ -135,6 +136,7 @@ export function createGame(players: PlayerSetup[], config?: RoomConfig): GameSta
     movesRemaining:        3,
     pendingAction:         null,
     blessingState:         null,
+    coinFlip:              null,
     turnStartedAt:         room.startedAt,
     turnTimeLimitSec:      60,
     winner:                null,
@@ -176,8 +178,13 @@ export function incrementPlayerFlowersPlanted(state: GameState, playerId: string
   });
 }
 
+const MAX_SERVER_LOG_ENTRIES = 250;
+
 export function addLog(state: GameState, msg: string): GameState {
-  return { ...state, log: [...state.log, msg] };
+  const nextLog = state.log.length >= MAX_SERVER_LOG_ENTRIES
+    ? [...state.log.slice(state.log.length - MAX_SERVER_LOG_ENTRIES + 1), msg]
+    : [...state.log, msg];
+  return { ...state, log: nextLog };
 }
 
 /**

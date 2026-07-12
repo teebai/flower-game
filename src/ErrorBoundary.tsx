@@ -40,8 +40,8 @@ export class ErrorBoundary extends Component<Props, State> {
           background: '#1a1a2e',
           color: '#fff',
           padding: 40,
-          fontFamily: 'monospace',
-          fontSize: 14,
+          fontFamily: 'Teebai, monospace',
+          fontSize: 42,
           overflow: 'auto',
           zIndex: 999999,
         }}>
@@ -69,7 +69,7 @@ export class ErrorBoundary extends Component<Props, State> {
               border: 'none',
               borderRadius: 6,
               cursor: 'pointer',
-              fontSize: 16,
+              fontSize: 48,
             }}
           >
             Reload Game

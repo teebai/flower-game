@@ -37,10 +37,10 @@ export const PlayerInfoModal = React.memo(function PlayerInfoModal({
           <button className="icon-btn" onClick={onClose}>✕</button>
         </div>
         <div className="v2-modal-body" style={{ color: theme.text }}>
-          <div style={{ marginBottom: 12, fontSize: 13 }}>
+          <div style={{ marginBottom: 12, fontSize: 39 }}>
             🃏 <b>{infoPlayer.hand.length}</b> card{infoPlayer.hand.length !== 1 ? 's' : ''} in hand
           </div>
-          <div style={{ fontSize: 12, color: theme.muted, marginBottom: 6 }}>
+          <div style={{ fontSize: 36, color: theme.muted, marginBottom: 6 }}>
             {infoPlayer.garden.sets.length === 0 ? 'No sets yet.' : `${infoPlayer.garden.sets.length} set${infoPlayer.garden.sets.length !== 1 ? 's' : ''}:`}
           </div>
           {infoPlayer.garden.sets.map(set => {
@@ -51,9 +51,9 @@ export const PlayerInfoModal = React.memo(function PlayerInfoModal({
                 display: 'flex', alignItems: 'center', gap: 6,
                 marginBottom: 6, padding: '5px 8px',
                 background: theme.panelSoft, borderRadius: 8,
-                fontSize: 13,
+                fontSize: 39,
               }}>
-                <span style={{ fontSize: 15 }}>{set.isToken ? '💎' : setColor ? (FLOWER_EMOJI[setColor] ?? '🌸') : '🌈'}</span>
+                <span style={{ fontSize: 45 }}>{set.isToken ? '💎' : setColor ? (FLOWER_EMOJI[setColor] ?? '🌸') : '🌈'}</span>
                 <span style={{ flex: 1 }}>
                   {set.isToken ? 'Token set' : set.flowers.map(f => FLOWER_EMOJI[flowerDisplayColor(f)] ?? '🌸').join('')}
                 </span>

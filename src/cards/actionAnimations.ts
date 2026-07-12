@@ -14,7 +14,7 @@ import tradeFateAnim from '../assets/animations/trade_fate-animation.gif';
 import letGoAnim1 from '../assets/animations/let_go-animation1.gif';
 import letGoAnim2 from '../assets/animations/let_go-animation2.gif';
 import springAnim from '../assets/animations/spring-animation.gif';
-import summerAnim from '../assets/animations/summer-animation.gif';
+import summerAnim from '../assets/powers/summer.gif';
 import autumnAnim from '../assets/animations/autumn-animation.gif';
 import winterAnim from '../assets/animations/winter-animation.gif';
 import naturalDisasterAnim1 from '../assets/animations/natural_disaster-animation1.gif';

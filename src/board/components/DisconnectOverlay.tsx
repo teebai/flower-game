@@ -23,55 +23,39 @@ export const DisconnectOverlay = React.memo(function DisconnectOverlay({
   const isMatchGone = reason === 'match-gone';
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 9000,
-      background: 'rgba(0,0,0,0.75)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: 24,
-    }}>
-      <div style={{
-        background: theme.panel,
-        border: `1px solid ${theme.border}`,
-        borderRadius: 18,
-        padding: '32px 28px',
-        textAlign: 'center',
-        maxWidth: 340,
-        width: '100%',
-        boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
-      }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>
+    <div className="disconnect-overlay-backdrop">
+      <div
+        className="disconnect-overlay-card"
+        style={{
+          background: theme.panel,
+          borderColor: theme.border,
+        }}
+      >
+        <div className="disconnect-overlay-icon">
           {isMatchGone ? '🚫' : '🔌'}
         </div>
-        <div style={{ fontWeight: 700, fontSize: 17, color: theme.text, marginBottom: 8 }}>
+        <div className="disconnect-overlay-title" style={{ color: theme.text }}>
           {isMatchGone ? 'Match Ended' : 'Connection Lost'}
         </div>
-        <div style={{ fontSize: 13, color: theme.muted, marginBottom: 24, lineHeight: 1.6 }}>
+        <div className="disconnect-overlay-body" style={{ color: theme.muted }}>
           {isMatchGone
             ? 'This match no longer exists on the server — it may have been ended or deleted.'
-            : 'You\'ve been disconnected from the game server. Refresh the page to reconnect — your match is saved.'}
+            : "You've been disconnected from the game server. Refresh the page to reconnect — your match is saved."}
         </div>
         <button
+          type="button"
+          className="disconnect-overlay-btn reconnect"
           onClick={() => window.location.reload()}
-          style={{
-            width: '100%', padding: '11px 0',
-            background: 'linear-gradient(135deg,#e94560,#c73652)',
-            color: '#fff', border: 'none', borderRadius: 10,
-            fontWeight: 700, fontSize: 15, cursor: 'pointer',
-            marginBottom: 10,
-          }}
         >
-          🔄 {isMatchGone ? 'Back to Lobby' : 'Refresh Page'}
+          🔄 {isMatchGone ? 'Back to Lobby' : 'Reconnect'}
         </button>
         <button
+          type="button"
+          className="disconnect-overlay-btn dismiss"
+          style={{ borderColor: theme.border, color: theme.muted }}
           onClick={onDismiss}
-          style={{
-            width: '100%', padding: '8px 0',
-            background: 'transparent', border: `1px solid ${theme.border}`,
-            color: theme.muted, borderRadius: 10,
-            fontSize: 13, cursor: 'pointer',
-          }}
         >
-          Dismiss (stay on page)
+          Dismiss
         </button>
       </div>
     </div>

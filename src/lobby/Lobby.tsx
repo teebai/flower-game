@@ -3,24 +3,35 @@
 // Create or join a match via boardgame.io Lobby API.
 // ============================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useSyncExternalStore } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import type { MatchInfo } from '../auth/storage';
-import { CardArtManager } from '../cards/CardArtManager';
-
-const SERVER = (() => {
-  const host = window.location.hostname;
-  if (host === 'localhost' || host === '127.0.0.1') {
-    return (import.meta.env.VITE_GAME_SERVER_URL as string | undefined) || 'http://localhost:8000';
-  }
-  // Production / tunnel / Railway: same origin (server serves static files + API)
-  return window.location.origin;
-})();
-const IDENTITY_SERVER = import.meta.env.VITE_IDENTITY_SERVER_URL?.trim() || '';
-const GAME   = 'flower-game';
+import { SERVER, IDENTITY_SERVER, GAME } from '../config';
+import { GrassField } from '../board/GrassField';
+import { HowToPlay } from './HowToPlay';
+import {
+  type DanmakuComment,
+  getWhimsicalColor,
+  WHIMSICAL_COLORS,
+  subscribeDanmaku,
+  getDanmakuSnapshot,
+  addDanmakuComment,
+  cleanupDanmakuComments,
+  assignDanmakuLane,
+  occupyLane,
+  getLastDanmakuSendAt,
+  setLastDanmakuSendAt,
+  DANMAKU_MIN_DURATION,
+  DANMAKU_MAX_DURATION,
+  DANMAKU_MAX_COMMENTS,
+  DANMAKU_SEND_COOLDOWN_MS,
+  DANMAKU_LANE_HEIGHT,
+  DANMAKU_TOP_OFFSET,
+} from '../danmakuStore';
 
 interface Props {
   onJoin: (matchID: string, playerID: string, playerName: string, credentials: string) => void;
+  onSpectate: (matchID: string) => void;
   storedMatch: MatchInfo | null;
 }
 
@@ -121,8 +132,28 @@ const btn: React.CSSProperties = {
   border: 'none',
   cursor: 'pointer',
   fontWeight: 700,
-  fontSize: 15,
+  fontSize: 45,
 };
+
+const FLOWER_GIFS = [
+  '/src/assets/flowers/black-flower.gif',
+  '/src/assets/flowers/blue-flower.gif',
+  '/src/assets/flowers/green-flower.gif',
+  '/src/assets/flowers/orange-flower.gif',
+  '/src/assets/flowers/purple-flower.gif',
+  '/src/assets/flowers/red-flower.gif',
+  '/src/assets/flowers/yellow-flower.gif',
+];
+
+function getFlowerGif(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  const idx = Math.abs(hash) % FLOWER_GIFS.length;
+  return FLOWER_GIFS[idx];
+}
 
 function formatTime(ts?: number): string {
   if (!ts) return 'just now';
@@ -160,7 +191,7 @@ function providerLabel(provider: string, isGuest: boolean): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
-export function Lobby({ onJoin, storedMatch }: Props) {
+export function Lobby({ onJoin, onSpectate, storedMatch }: Props) {
   const {
     configured,
     error: authError,
@@ -179,12 +210,17 @@ export function Lobby({ onJoin, storedMatch }: Props) {
   const [roomName, setRoomName] = useState('');
   const [matchID, setMatchID] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
-  const [joinByIdOpen, setJoinByIdOpen] = useState(false);
+  const [joinByIdOpen, setJoinByIdOpen] = useState(false); // TODO: re-implement Join by ID UI
+  const [editingName, setEditingName] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [createBubbleOpen, setCreateBubbleOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingRooms, setLoadingRooms] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileFeedback, setProfileFeedback] = useState('');
   const [activeTab, setActiveTab] = useState<'play' | 'leaderboard'>('play');
+  const [howToPlayOpen, setHowToPlayOpen] = useState(false);
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
@@ -192,10 +228,48 @@ export function Lobby({ onJoin, storedMatch }: Props) {
   const [myStats, setMyStats] = useState<PlayerStats | null>(null);
   const [copiedMatchId, setCopiedMatchId] = useState('');
   const [error, setError] = useState('');
-  const [designerOpen, setDesignerOpen] = useState(false);
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installHintOpen, setInstallHintOpen] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+
+  /* ── Global danmaku chat ── */
+  const [chatInput, setChatInput] = useState('');
+  const danmakuComments = useSyncExternalStore(
+    subscribeDanmaku,
+    getDanmakuSnapshot,
+  );
+
+  function sendChat() {
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+    const now = Date.now();
+    if (now - getLastDanmakuSendAt() < DANMAKU_SEND_COOLDOWN_MS) return;
+    setLastDanmakuSendAt(now);
+    const lane = assignDanmakuLane(now);
+    const duration = DANMAKU_MIN_DURATION
+      + Math.random() * (DANMAKU_MAX_DURATION - DANMAKU_MIN_DURATION);
+    const color = getWhimsicalColor(trimmed + now);
+    const playerName = profile?.displayName?.trim() || name.trim() || 'Guest';
+    const comment: DanmakuComment = {
+      id: `${now}-${Math.random()}`,
+      text: `${playerName}: ${trimmed}`,
+      color,
+      lane,
+      duration: Math.round(duration),
+      createdAt: now,
+    };
+    addDanmakuComment(comment);
+    occupyLane(lane, now, duration);
+    setChatInput('');
+  }
+
+  useEffect(() => {
+    if (danmakuComments.length === 0) return;
+    const interval = window.setInterval(() => {
+      cleanupDanmakuComments();
+    }, 500);
+    return () => window.clearInterval(interval);
+  }, [danmakuComments.length > 0]);
 
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
   const isIos = /iPad|iPhone|iPod/.test(ua);
@@ -258,27 +332,36 @@ export function Lobby({ onJoin, storedMatch }: Props) {
   }
 
   async function joinMatchViaGameServer(targetMatchID: string, resolvedName: string): Promise<void> {
+    console.log('[join] Step 1: fetching room info', targetMatchID);
     const res = await fetch(`${SERVER}/rooms/${encodeURIComponent(targetMatchID)}`);
+    console.log('[join] Step 1 result:', res.status, res.ok);
     if (!res.ok) throw new Error('Match not found');
     const match = await res.json() as RoomSummary;
+    console.log('[join] Step 2: room data', { gameover: match.gameover, started: match.started, players: match.players?.length });
     if (match.gameover) throw new Error('That room has already finished.');
     if (match.started) throw new Error('Game already started. Only seated players can rejoin.');
     const players = match.players ?? [];
-    const myExistingSeat = players.find(p => p.name?.trim().toLowerCase() === resolvedName.toLowerCase());
+    const myExistingSeat = players.find(p => (p.name ?? '').trim().toLowerCase() === resolvedName.toLowerCase());
     if (myExistingSeat) throw new Error(`You're already seated in this match. Refresh the page to reconnect — your session is saved.`);
     const openSeat = players.find(player => !player.name);
     if (!openSeat) {
       throw new Error('No open seats in that match');
     }
 
+    console.log('[join] Step 3: posting join', { playerID: openSeat.id, playerName: resolvedName });
     const joinRes = await fetch(`${SERVER}/games/${GAME}/${targetMatchID}/join`, {
       method:  'POST',
       headers: buildGameHeaders(),
       body:    JSON.stringify({ playerID: String(openSeat.id), playerName: resolvedName }),
     });
-    if (!joinRes.ok) throw new Error('Could not join that room');
+    console.log('[join] Step 3 result:', joinRes.status, joinRes.ok);
+    if (!joinRes.ok) {
+      const errText = await joinRes.text().catch(() => 'unknown');
+      throw new Error(`Could not join that room (${joinRes.status}): ${errText}`);
+    }
 
     const { playerCredentials } = await joinRes.json() as { playerCredentials: string };
+    console.log('[join] Step 4: success, credentials received');
     await claimSeatIdentity(targetMatchID, String(openSeat.id), resolvedName);
     onJoin(targetMatchID, String(openSeat.id), resolvedName, playerCredentials);
   }
@@ -397,12 +480,12 @@ export function Lobby({ onJoin, storedMatch }: Props) {
     const suggestedName = profile?.displayName?.trim();
     if (!suggestedName) return;
     if (!profile || profile.isGuest) {
-      if (!nameTouched || !name.trim()) {
+      if (!nameTouched && !name.trim()) {
         setName(suggestedName);
       }
       return;
     }
-    if (!nameTouched || !name.trim()) {
+    if (!nameTouched && !name.trim()) {
       setName(suggestedName);
     }
   }, [nameTouched, name, profile]);
@@ -426,11 +509,10 @@ export function Lobby({ onJoin, storedMatch }: Props) {
       'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
     );
 
-    const preventGesture = (event: Event) => event.preventDefault();
-    document.addEventListener('gesturestart', preventGesture, { passive: false });
+    // gesturestart prevention is now global in App.tsx — removed from here
+    // to avoid double handlers and cleanup conflicts when navigating.
 
     return () => {
-      document.removeEventListener('gesturestart', preventGesture);
       if (viewport) viewport.setAttribute('content', previousViewport);
     };
   }, []);
@@ -536,9 +618,8 @@ export function Lobby({ onJoin, storedMatch }: Props) {
       const trimmedName = resolvedName;
       const trimmedRoomName = roomName.trim();
       if (profile && !profile.isGuest && IDENTITY_SERVER) {
-        let trustedRes: Response;
         try {
-          trustedRes = await fetch(`${IDENTITY_SERVER}/api/matches/create`, {
+          const trustedRes = await fetch(`${IDENTITY_SERVER}/api/matches/create`, {
             method: 'POST',
             headers: await buildIdentityHeaders(),
             body: JSON.stringify({
@@ -546,29 +627,31 @@ export function Lobby({ onJoin, storedMatch }: Props) {
               roomName: trimmedRoomName || `${trimmedName}'s room`,
             }),
           });
+
+          const trustedData = await readJsonOrNull<{
+            error?: string;
+            matchID?: string;
+            playerCredentials?: string;
+            playerID?: string;
+            playerName?: string;
+          }>(trustedRes);
+          if (trustedRes.ok && trustedData?.matchID && trustedData.playerCredentials && trustedData.playerID) {
+            onJoin(
+              trustedData.matchID,
+              trustedData.playerID,
+              trustedData.playerName || trimmedName,
+              trustedData.playerCredentials,
+            );
+            return;
+          }
+          // Bad/missing response from identity server: fall through to game server
+          console.warn('[create] identity server returned unusable response, falling back', {
+            status: trustedRes.status,
+            hasData: !!trustedData,
+          });
         } catch (trustedError) {
-          await createMatchViaGameServer(trimmedName, trimmedRoomName);
-          return;
+          console.warn('[create] identity server error, falling back to game server', trustedError);
         }
-
-        const trustedData = await readJsonOrNull<{
-          error?: string;
-          matchID?: string;
-          playerCredentials?: string;
-          playerID?: string;
-          playerName?: string;
-        }>(trustedRes);
-        if (!trustedRes.ok || !trustedData?.matchID || !trustedData.playerCredentials || !trustedData.playerID) {
-          throw new Error(trustedData?.error || `Server error ${trustedRes.status}`);
-        }
-
-        onJoin(
-          trustedData.matchID,
-          trustedData.playerID,
-          trustedData.playerName || trimmedName,
-          trustedData.playerCredentials,
-        );
-        return;
       }
       await createMatchViaGameServer(trimmedName, trimmedRoomName);
     } catch (e: unknown) {
@@ -583,6 +666,7 @@ export function Lobby({ onJoin, storedMatch }: Props) {
     const resolvedName = profile && !profile.isGuest
       ? profile.displayName.trim()
       : name.trim() || profile?.displayName?.trim() || '';
+    console.log('[join] start', { targetMatchID, hasProfile: !!profile, resolvedName: resolvedName.slice(0, 20) });
     if (!resolvedName) { setError('Enter your name first'); return; }
     if (profile && !profile.isGuest && !profile.displayNameConfirmed) {
       setError('Choose your username before joining a match.');
@@ -592,44 +676,48 @@ export function Lobby({ onJoin, storedMatch }: Props) {
     setLoading(true); setError('');
     try {
       if (!profile) {
+        console.log('[join] calling continueAsGuest');
         await continueAsGuest(resolvedName);
+        console.log('[join] continueAsGuest done, profile now:', !!profile);
       }
       if (profile && !profile.isGuest && IDENTITY_SERVER) {
-        let trustedRes: Response;
         try {
-          trustedRes = await fetch(`${IDENTITY_SERVER}/api/matches/${encodeURIComponent(targetMatchID)}/join`, {
+          const trustedRes = await fetch(`${IDENTITY_SERVER}/api/matches/${encodeURIComponent(targetMatchID)}/join`, {
             method: 'POST',
             headers: await buildIdentityHeaders(),
             body: JSON.stringify({
               playerName: resolvedName,
             }),
           });
+
+          const trustedData = await readJsonOrNull<{
+            error?: string;
+            matchID?: string;
+            playerCredentials?: string;
+            playerID?: string;
+            playerName?: string;
+          }>(trustedRes);
+          if (trustedRes.ok && trustedData?.matchID && trustedData.playerCredentials && trustedData.playerID) {
+            onJoin(
+              trustedData.matchID,
+              trustedData.playerID,
+              trustedData.playerName || resolvedName,
+              trustedData.playerCredentials,
+            );
+            return;
+          }
+          console.warn('[join] identity server returned unusable response, falling back', {
+            status: trustedRes.status,
+            hasData: !!trustedData,
+          });
         } catch (trustedError) {
-          await joinMatchViaGameServer(targetMatchID, resolvedName);
-          return;
+          console.warn('[join] identity server error, falling back to game server', trustedError);
         }
-
-        const trustedData = await readJsonOrNull<{
-          error?: string;
-          matchID?: string;
-          playerCredentials?: string;
-          playerID?: string;
-          playerName?: string;
-        }>(trustedRes);
-        if (!trustedRes.ok || !trustedData?.matchID || !trustedData.playerCredentials || !trustedData.playerID) {
-          throw new Error(trustedData?.error || 'Could not join that room');
-        }
-
-        onJoin(
-          trustedData.matchID,
-          trustedData.playerID,
-          trustedData.playerName || resolvedName,
-          trustedData.playerCredentials,
-        );
-        return;
       }
+      console.log('[join] using game server join');
       await joinMatchViaGameServer(targetMatchID, resolvedName);
     } catch (e: unknown) {
+      console.error('[join] failed:', e);
       setError(e instanceof Error ? e.message : String(e));
       void loadRooms();
     } finally {
@@ -638,7 +726,7 @@ export function Lobby({ onJoin, storedMatch }: Props) {
   }
 
   const openRooms = rooms.filter(match => !match.gameover && !match.started && match.openSeatCount > 0);
-  const finishedRooms = rooms.filter(match => !!match.gameover);
+  const ongoingRooms = rooms.filter(match => !match.gameover && match.started);
   const canSaveProfileName = Boolean(
     profile
     && profileDisplayName.trim()
@@ -665,30 +753,41 @@ export function Lobby({ onJoin, storedMatch }: Props) {
   );
   const compactLockedIdentity = Boolean(profile && !profile.isGuest && profile.displayNameConfirmed && usernameLocked);
 
+  // ── Interactive grass background ──
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    setCursorPos({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handlePointerLeave = useCallback(() => {
+    setCursorPos(null);
+  }, []);
+
   return (
-    <div className="lobby-shell">
-      <div className="lobby-card">
-        {storedMatch && (
-          <div className="lobby-resume-banner">
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: '#4ecca3' }}>Resume last game</div>
-              <div style={{ fontSize: 12, color: '#7d5470', marginTop: 2 }}>
-                Match <span style={{ color: '#eee', fontFamily: 'monospace' }}>{storedMatch.matchID}</span> as <b style={{ color: '#eee' }}>{storedMatch.playerName}</b>
-              </div>
-            </div>
-            <button
-              onClick={() => onJoin(storedMatch.matchID, storedMatch.playerID, storedMatch.playerName, storedMatch.credentials)}
-              style={{ ...btn, background: '#4ecca3', color: '#1a1a2e', padding: '8px 18px', fontSize: 13 }}
-            >
-              Reconnect
-            </button>
-          </div>
-        )}
-        <section className="lobby-hero">
-          <div className="lobby-hero-copy">
-            <div className="lobby-kicker">Play online</div>
-            <h1 className="app-title" style={{ fontSize: 32, marginBottom: 4 }}>Flower Game</h1>
-          </div>
+    <div
+      className="lobby-shell"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
+      style={{ position: 'relative' }}
+    >
+      <GrassField
+        season="spring"
+        scrollX={0}
+        scrollY={0}
+        zoom={1}
+        cursorPos={cursorPos}
+        className="lobby-grass"
+      />
+      <div className="lobby-card" style={{ zIndex: 1 }}>
+        {/* Hero banner with animated GIF */}
+        <section className="lobby-hero-gif">
+          <img
+            src="/flower_game.gif"
+            alt="Flower Game"
+            className="lobby-hero-image"
+            draggable={false}
+          />
           {canShowInstallButton && (
             <div className="lobby-install-anchor">
               <button
@@ -708,227 +807,389 @@ export function Lobby({ onJoin, storedMatch }: Props) {
           )}
         </section>
 
-        <nav className="lobby-tabs" aria-label="Lobby sections">
+        {/* Centered auth section */}
+        <section className="lobby-auth-center">
+          {!profile ? (
+            <>
+              <div className="lobby-name-gif-wrapper">
+                {!editingName ? (
+                  <button
+                    type="button"
+                    className="lobby-auth-name-display"
+                    onClick={() => setEditingName(true)}
+                  >
+                    {name.trim() || 'NAME'}
+                  </button>
+                ) : (
+                  <input
+                    autoFocus
+                    value={name}
+                    onChange={e => { setNameTouched(true); setName(e.target.value); }}
+                    onBlur={() => setEditingName(false)}
+                    onKeyDown={e => { if (e.key === 'Enter') setEditingName(false); }}
+                    placeholder="NAME"
+                    className="lobby-auth-name-input"
+                  />
+                )}
+                <div className="lobby-name-glow" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+              </div>
+              <div className="lobby-auth-buttons">
+                <button
+                  type="button"
+                  onClick={() => setLoginOpen(true)}
+                  disabled={socialButtonsDisabled}
+                  className="lobby-auth-btn lobby-auth-btn--signin"
+                >
+                  Log in
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void continueAsGuest(name.trim())}
+                  disabled={authLoading}
+                  className="lobby-auth-btn lobby-auth-btn--guest"
+                >
+                  Guest
+                </button>
+              </div>
+            </>
+          ) : profile.isGuest ? (
+            <>
+              <div className="lobby-name-gif-wrapper">
+                {!editingName ? (
+                  <button
+                    type="button"
+                    className="lobby-auth-name-display"
+                    onClick={() => setEditingName(true)}
+                  >
+                    {profile.displayName}
+                  </button>
+                ) : (
+                  <input
+                    autoFocus
+                    value={name}
+                    onChange={e => { setNameTouched(true); setName(e.target.value); }}
+                    onBlur={() => setEditingName(false)}
+                    onKeyDown={e => { if (e.key === 'Enter') { setEditingName(false); void continueAsGuest(name.trim()); } }}
+                    placeholder="NAME"
+                    className="lobby-auth-name-input"
+                  />
+                )}
+                <div className="lobby-name-glow" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+              </div>
+              <div className="lobby-auth-buttons">
+                <button
+                  type="button"
+                  onClick={() => setLoginOpen(true)}
+                  disabled={socialButtonsDisabled}
+                  className="lobby-auth-btn lobby-auth-btn--signin"
+                >
+                  Log in
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void continueAsGuest(name.trim())}
+                  disabled={authLoading}
+                  className="lobby-auth-btn lobby-auth-btn--guest"
+                >
+                  Guest
+                </button>
+              </div>
+            </>
+          ) : !profile.displayNameConfirmed ? (
+            <>
+              <div className="lobby-auth-welcome">Choose your name</div>
+              <div className="lobby-auth-input-row">
+                <input
+                  value={profileDisplayName}
+                  onChange={e => { setProfileFeedback(''); setProfileDisplayName(e.target.value); }}
+                  placeholder="USERNAME"
+                  className="lobby-auth-name-input"
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleSaveProfileName(); }}}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSaveProfileName()}
+                  disabled={!canSaveProfileName || profileSaving}
+                  className="lobby-auth-btn lobby-auth-btn--signin"
+                >
+                  {profileSaving ? '...' : 'Go'}
+                </button>
+              </div>
+              {profileFeedback && (
+                <div className={`lobby-auth-feedback${profileFeedback.includes('chosen') || profileFeedback.includes('updated') ? ' is-success' : ''}`}>
+                  {profileFeedback}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="lobby-name-gif-wrapper">
+                {!editingName ? (
+                  <button
+                    type="button"
+                    className="lobby-auth-name-display"
+                    onClick={() => setEditingName(true)}
+                  >
+                    {profile.displayName}
+                  </button>
+                ) : (
+                  <input
+                    autoFocus
+                    value={profileDisplayName}
+                    onChange={e => { setProfileFeedback(''); setProfileDisplayName(e.target.value); }}
+                    onBlur={() => setEditingName(false)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); setEditingName(false); void handleSaveProfileName(); }}}
+                    placeholder="USERNAME"
+                    className="lobby-auth-name-input"
+                  />
+                )}
+                <div className="lobby-name-glow" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+                <span className="lobby-sparkle" aria-hidden="true" />
+              </div>
+              <div className="lobby-auth-buttons">
+                <button
+                  type="button"
+                  onClick={() => void signOut()}
+                  disabled={authLoading}
+                  className="lobby-auth-btn lobby-auth-btn--ghost"
+                >
+                  Sign Out
+                </button>
+              </div>
+            </>
+          )}
+          {authNotice && (
+            <div className={`lobby-auth-notice is-${authNotice.tone}`}>
+              <span>{authNotice.message}</span>
+              <button type="button" className="lobby-auth-notice__dismiss" onClick={dismissNotice}>×</button>
+            </div>
+          )}
+        </section>
+
+        {/* Resume last game — expandable reconnect bubble */}
+        {storedMatch && (
+          <div className="lobby-resume-wrap">
+            {!resumeOpen ? (
+              <button
+                type="button"
+                className="lobby-resume-btn"
+                onClick={() => setResumeOpen(true)}
+              >
+                Reconnect
+              </button>
+            ) : (
+              <div className="lobby-resume-bubble">
+                <button type="button" className="lobby-resume-bubble__close" onClick={() => setResumeOpen(false)}>×</button>
+                <div className="lobby-resume-bubble__label">Match ID</div>
+                <div className="lobby-resume-bubble__id">{storedMatch.matchID}</div>
+                <div className="lobby-resume-bubble__as">as {storedMatch.playerName}</div>
+                <button
+                  className="lobby-resume-bubble__action"
+                  onClick={() => onJoin(storedMatch.matchID, storedMatch.playerID, storedMatch.playerName, storedMatch.credentials)}
+                >
+                  Reconnect
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Login popup */}
+        {loginOpen && (
+          <div className="lobby-login-overlay" onClick={() => setLoginOpen(false)}>
+            <div className="lobby-login-popup" onClick={e => e.stopPropagation()}>
+              <button type="button" className="lobby-login-close" onClick={() => setLoginOpen(false)}>×</button>
+              <div className="lobby-login-title">Sign In</div>
+              <div className="lobby-login-body">
+                <button
+                  type="button"
+                  className="lobby-login-provider"
+                  onClick={() => { setLoginOpen(false); void signInWithGoogle(); }}
+                  disabled={socialButtonsDisabled}
+                >
+                  <span className="lobby-login-provider__icon">G</span>
+                  Continue with Google
+                </button>
+                {!configured && (
+                  <div className="lobby-auth-hint" style={{ marginTop: 8 }}>Social login requires server setup.</div>
+                )}
+              </div>
+              <div className="lobby-login-footer">
+                <button
+                  type="button"
+                  className="lobby-auth-btn lobby-auth-btn--guest"
+                  onClick={() => { setLoginOpen(false); void continueAsGuest(name.trim()); }}
+                  disabled={authLoading}
+                >
+                  Guest
+                </button>
+                <button
+                  type="button"
+                  className="lobby-auth-btn lobby-auth-btn--signin"
+                  onClick={() => { setLoginOpen(false); void signInWithGoogle(); }}
+                  disabled={socialButtonsDisabled}
+                >
+                  Sign in
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="lobby-nav-row">
           <button
             type="button"
-            className={`lobby-tab${activeTab === 'play' ? ' is-active' : ''}`}
-            onClick={() => setActiveTab('play')}
+            className="lobby-nav-btn lobby-nav-btn--guide"
+            onClick={() => setHowToPlayOpen(true)}
           >
-            Play
+            How to Play
           </button>
           <button
             type="button"
-            className={`lobby-tab${activeTab === 'leaderboard' ? ' is-active' : ''}`}
+            className={`lobby-nav-btn${activeTab === 'leaderboard' ? ' is-active' : ''}`}
             onClick={() => {
-              setActiveTab('leaderboard');
-              void loadLeaderboard();
-              void loadMyStats();
+              setActiveTab(activeTab === 'leaderboard' ? 'play' : 'leaderboard');
+              if (activeTab !== 'leaderboard') {
+                void loadLeaderboard();
+                void loadMyStats();
+              }
             }}
           >
-            Leaderboard
+            {activeTab === 'leaderboard' ? '← Back' : 'Leaderboard'}
           </button>
-        </nav>
+        </div>
+
+        {howToPlayOpen && <HowToPlay onClose={() => setHowToPlayOpen(false)} />}
 
         {activeTab === 'play' ? (
         <div className="lobby-grid">
           <div className="lobby-actions-column">
-            <div className={`lobby-identity-card${compactLockedIdentity ? ' is-compact' : ''}`}>
-              <div className="lobby-auth-header">
-                <div className="lobby-auth-copy">
-                  <div className="lobby-field-label">{profile ? 'Identity' : 'Sign In'}</div>
-                  <div className="lobby-auth-status">
-                    {authLoading
-                      ? 'Checking session...'
-                      : profile
-                        ? `${providerLabel(profile.provider, profile.isGuest)} session`
-                        : 'Choose a social login or continue as guest'}
-                  </div>
-                </div>
-                {profile && !compactLockedIdentity && (
-                  <div className="lobby-auth-chip">
-                    {profile.avatarUrl ? (
-                      <img src={profile.avatarUrl} alt={profile.displayName} className="lobby-auth-avatar" draggable={false} />
-                    ) : (
-                      <div className="lobby-auth-avatar lobby-auth-avatar--fallback">
-                        {profile.displayName.slice(0, 1).toUpperCase()}
+            {(profile && !profile.isGuest && (myStats || !compactLockedIdentity)) && (
+              <div className={`lobby-identity-card${compactLockedIdentity ? ' is-compact' : ''}`}>
+                {profile && !profile.isGuest && myStats && !compactLockedIdentity && (
+                  <div className="lobby-player-stats">
+                    <div className="lobby-field-label">Your Record</div>
+                    <div className="lobby-player-stats__grid">
+                      <div className="lobby-stat-tile">
+                        <div className="lobby-stat-tile__value">{myStats.gamesWon}</div>
+                        <div className="lobby-stat-tile__label">Wins</div>
                       </div>
-                    )}
-                    <div>
-                      <div className="lobby-auth-chip__name">{profile.displayName}</div>
-                      <div className="lobby-auth-chip__meta">{providerLabel(profile.provider, profile.isGuest)}</div>
+                      <div className="lobby-stat-tile">
+                        <div className="lobby-stat-tile__value">{myStats.gamesPlayed}</div>
+                        <div className="lobby-stat-tile__label">Played</div>
+                      </div>
+                      <div className="lobby-stat-tile">
+                        <div className="lobby-stat-tile__value">{formatWinRate(myStats.winRate)}</div>
+                        <div className="lobby-stat-tile__label">Win rate</div>
+                      </div>
+                      <div className="lobby-stat-tile">
+                        <div className="lobby-stat-tile__value">{myStats.flowersPlanted}</div>
+                        <div className="lobby-stat-tile__label">Flowers</div>
+                      </div>
+                    </div>
+                    <div className="lobby-identity-note">
+                      Last match {formatRelativeDate(myStats.lastPlayedAt)}
                     </div>
                   </div>
                 )}
-              </div>
 
-              {compactLockedIdentity && profile && (
-                <div className="lobby-locked-account">
-                  <div className="lobby-locked-user">
-                    <div className="lobby-locked-username">{profile.displayName}</div>
-                    <div className="lobby-locked-meta">
-                      {providerLabel(profile.provider, profile.isGuest)}
-                      {usernameLockedDate ? ` · change after ${usernameLockedDate}` : ''}
+                {profile && !profile.isGuest && !compactLockedIdentity && (
+                  <div className="lobby-identity-note">
+                    Your room name uses your username automatically.
+                    {signedInNeedsUsername && ' Choose your username above before creating or joining a room.'}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <section className="lobby-rooms-panel lobby-rooms-panel--open">
+              <div className={`lobby-gif-pair${createBubbleOpen ? ' is-open' : ''}`}>
+                {/* Primary button */}
+                <button
+                  type="button"
+                  className="lobby-create-gif-btn lobby-gif-item--primary"
+                  onClick={() => setCreateBubbleOpen(open => !open)}
+                  title="Create new room"
+                >
+                  <img src="/player_name.gif" alt="" draggable={false} />
+                  <span className="lobby-gif-overlay">
+                    <span className="lobby-gif-label">LOBBY</span>
+                    <span className="lobby-gif-plus">+</span>
+                  </span>
+                </button>
+
+                {/* Slide-out — starts behind primary, moves right */}
+                <div className="lobby-gif-slideout">
+                  {/* Ghost — raw GIF without text, stays visible */}
+                  <div className="lobby-gif-ghost">
+                    <div className="lobby-create-gif-btn lobby-gif-ghost__btn">
+                      <img src="/player_name.gif" alt="" draggable={false} />
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void signOut()}
-                    disabled={authLoading}
-                    className="lobby-pill-button lobby-pill-button--ghost lobby-pill-button--mini"
-                  >
-                    Sign Out
-                  </button>
-                </div>
-              )}
 
-              <div className="lobby-auth-actions">
-                {!profile && (
-                  <button
-                    type="button"
-                    onClick={() => void continueAsGuest(name.trim())}
-                    disabled={authLoading}
-                    className="lobby-pill-button lobby-pill-button--soft"
-                  >
-                    Continue as Guest
-                  </button>
-                )}
-                {showSocialActions && (
-                  <button
-                    type="button"
-                    onClick={() => void signInWithGoogle()}
-                    disabled={socialButtonsDisabled}
-                    className="lobby-pill-button"
-                    aria-disabled={socialButtonsDisabled}
-                  >
-                    {profile?.isGuest ? 'Sign in with Google' : 'Continue with Google'}
-                  </button>
-                )}
-                {profile && !compactLockedIdentity && (
-                  <button
-                    type="button"
-                    onClick={() => void signOut()}
-                    disabled={authLoading}
-                    className="lobby-pill-button lobby-pill-button--ghost"
-                  >
-                    Sign Out
-                  </button>
-                )}
-              </div>
-              {showSocialActions && (
-                <div className={`lobby-identity-note${configured ? '' : ' lobby-identity-note--warning'}`}>
-                  {socialHint}
-                </div>
-              )}
-              {authNotice && (
-                <div className={`lobby-auth-notice is-${authNotice.tone}`}>
-                  <span>{authNotice.message}</span>
-                  <button
-                    type="button"
-                    className="lobby-auth-notice__dismiss"
-                    onClick={dismissNotice}
-                    aria-label="Dismiss auth message"
-                  >
-                    x
-                  </button>
-                </div>
-              )}
-
-              {profile && !compactLockedIdentity && (
-                <div className="lobby-profile-editor">
-                  <label className="lobby-field-label">{profile.displayNameConfirmed ? 'Username' : 'Choose Username'}</label>
-                  <div className="lobby-inline-field">
+                  {/* Form popup — solid, appears below the GIF */}
+                  <div className="lobby-create-form-popup">
                     <input
-                      value={profileDisplayName}
-                      onChange={event => {
-                        setProfileFeedback('');
-                        setProfileDisplayName(event.target.value);
-                      }}
-                      disabled={usernameLocked || profileSaving}
-                      onKeyDown={event => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault();
-                          void handleSaveProfileName();
-                        }
-                      }}
-                      placeholder="How your account appears"
-                      className="lobby-input"
+                      value={roomName}
+                      onChange={e => setRoomName(e.target.value)}
+                      placeholder="Room name"
+                      className="lobby-create-form-popup__input"
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void createMatch(); }}}
                     />
                     <button
                       type="button"
-                      onClick={() => void handleSaveProfileName()}
-                      disabled={!canSaveProfileName || profileSaving}
-                      className="lobby-pill-button lobby-pill-button--soft lobby-inline-field__button"
+                      className="lobby-create-form-popup__btn"
+                      onClick={() => void createMatch()}
+                      disabled={loading || signedInNeedsUsername}
                     >
-                      {profileSaving ? 'Saving...' : usernameLocked ? 'Locked' : profile.displayNameConfirmed ? 'Save' : 'Choose'}
+                      {loading ? '...' : 'Create'}
                     </button>
                   </div>
-                  <div className="lobby-identity-note">
-                    {profile.displayNameConfirmed
-                      ? `This username appears in every Flower Game room. Once you set it, you can only change it after 90 days.${profile.canChangeDisplayName ? '' : ` Next change: ${usernameLockedDate || 'soon'}.`}`
-                      : 'Pick the username you want to use across every Flower Game room.'}
-                  </div>
-                  {profileFeedback && (
-                    <div className={`lobby-inline-feedback${profileFeedback.includes('chosen') || profileFeedback.includes('updated') ? ' is-success' : ''}`}>
-                      {profileFeedback}
-                    </div>
-                  )}
                 </div>
-              )}
+              </div>
 
-              {profile && !profile.isGuest && myStats && !compactLockedIdentity && (
-                <div className="lobby-player-stats">
-                  <div className="lobby-field-label">Your Record</div>
-                  <div className="lobby-player-stats__grid">
-                    <div className="lobby-stat-tile">
-                      <div className="lobby-stat-tile__value">{myStats.gamesWon}</div>
-                      <div className="lobby-stat-tile__label">Wins</div>
-                    </div>
-                    <div className="lobby-stat-tile">
-                      <div className="lobby-stat-tile__value">{myStats.gamesPlayed}</div>
-                      <div className="lobby-stat-tile__label">Played</div>
-                    </div>
-                    <div className="lobby-stat-tile">
-                      <div className="lobby-stat-tile__value">{formatWinRate(myStats.winRate)}</div>
-                      <div className="lobby-stat-tile__label">Win rate</div>
-                    </div>
-                    <div className="lobby-stat-tile">
-                      <div className="lobby-stat-tile__value">{myStats.flowersPlanted}</div>
-                      <div className="lobby-stat-tile__label">Flowers</div>
-                    </div>
-                  </div>
-                  <div className="lobby-identity-note">
-                    Last match {formatRelativeDate(myStats.lastPlayedAt)}
-                  </div>
-                </div>
-              )}
-
-              {(!profile || profile.isGuest) ? (
-                <>
-                  <label className="lobby-field-label">Your Name</label>
-                  <input
-                    value={name}
-                    onChange={e => {
-                      setNameTouched(true);
-                      setName(e.target.value);
-                    }}
-                    placeholder="e.g. Alice"
-                  className="lobby-input"
+              {/* Chat input */}
+              <div className="lobby-chat-bar">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      if (!chatInput.trim()) {
+                        e.currentTarget.blur();
+                      } else {
+                        sendChat();
+                      }
+                    }
+                  }}
+                  placeholder="chat here"
+                  className={`lobby-chat-input${chatInput.trim() ? ' is-typing' : ''}`}
+                  maxLength={60}
                 />
-              </>
-              ) : !compactLockedIdentity ? (
-                <div className="lobby-identity-note">
-                  Your room name uses your username automatically, so every Flower Game match sees the same identity.
-                  {signedInNeedsUsername && ' Choose it above before creating or joining a room.'}
-                </div>
-              ) : null}
-            </div>
+                {chatInput.trim() && (
+                  <button
+                    type="button"
+                    onClick={sendChat}
+                    className="lobby-chat-send"
+                  >
+                    Send
+                  </button>
+                )}
+              </div>
 
-            <section className="lobby-panel lobby-rooms-panel lobby-rooms-panel--open">
               <div className="lobby-rooms-header">
-                <div>
-                  <div className="lobby-section-tag">Open Rooms</div>
-                  <h3 style={{ margin: 0, color: '#ffd166' }}>Join a live table</h3>
-                </div>
                 <button
                   onClick={() => void loadRooms()}
                   disabled={loadingRooms}
@@ -947,184 +1208,142 @@ export function Lobby({ onJoin, storedMatch }: Props) {
 
                 {openRooms.map(room => {
                   const players = room.players ?? [];
-                  const totalSeats = room.maxPlayers;
-                  const joinedSeats = room.joinedCount;
                   const openSeats = room.openSeatCount;
                   const creator = players.find(player => String(player.id) === String(room.ownerPlayerId))?.name?.trim()
                     || players.find(player => !!player.name?.trim())?.name?.trim()
                     || 'Unknown';
                   const displayRoomName = room.roomName?.trim() || `${creator}'s room`;
-                  const roomIdCopied = copiedMatchId === room.matchID;
-                  const roomStatus = room.started ? 'In progress' : 'Waiting';
+                  const occupiedPlayers = players.filter(p => !!p.name?.trim());
+
+                  const roomNameColor = getWhimsicalColor(displayRoomName);
+                  const hostColor = getWhimsicalColor('host:' + creator);
+                  const idColor = getWhimsicalColor('id:' + room.matchID);
 
                   return (
                     <div
                       key={room.matchID}
-                      className="lobby-room-card lobby-room-card--open"
+                      className="lobby-garden-card"
                     >
-                      <div className="lobby-room-title-row">
-                        <div>
-                          <div className="lobby-room-name">{displayRoomName}</div>
-                          <div className="lobby-room-host">Hosted by {creator} · {roomStatus}</div>
-                        </div>
-                        <div className="lobby-room-time">{formatTime(room.createdAt ?? undefined)}</div>
+                      {/* Flower avatars around the top */}
+                      <div className="lobby-garden-flowers">
+                        {occupiedPlayers.slice(0, 4).map((player, idx) => (
+                          <div key={player.id} className="lobby-garden-flower" title={player.name}>
+                            <img
+                              src={getFlowerGif(player.name || String(idx))}
+                              alt=""
+                              className="lobby-garden-flower__gif"
+                              draggable={false}
+                            />
+                            <span className="lobby-garden-flower__name" style={{ color: getWhimsicalColor(player.name || '') }}>
+                              {player.name}
+                            </span>
+                          </div>
+                        ))}
+                        {occupiedPlayers.length > 4 && (
+                          <div className="lobby-garden-flower">
+                            <div className="lobby-garden-flower__more">+{occupiedPlayers.length - 4}</div>
+                          </div>
+                        )}
                       </div>
 
-                      <div className="lobby-room-meta">
-                        <div className="lobby-room-id-row">
-                          <span className="lobby-room-id-label">Room ID</span>
-                          <span className="lobby-room-id-value">{room.matchID}</span>
-                          <button
-                            type="button"
-                            className="lobby-copy-id-button"
-                            onClick={() => void copyMatchId(room.matchID)}
-                          >
-                            {roomIdCopied ? 'Copied' : 'Copy'}
-                          </button>
-                        </div>
-                        <div className="lobby-room-capacity">
-                          {joinedSeats}/{totalSeats} joined · {openSeats} seat{openSeats === 1 ? '' : 's'} open
-                          {` · starts at ${room.minPlayers}`}
-                        </div>
+                      {/* Room name in center */}
+                      <div className="lobby-garden-center">
+                        <div className="lobby-garden-name" style={{ color: roomNameColor }}>{displayRoomName}</div>
+                        <div className="lobby-garden-host" style={{ color: hostColor }}>by {creator}</div>
                       </div>
 
-                      <div className="lobby-room-seats">
-                        {players.map((player, index) => {
-                          const occupied = !!player.name?.trim();
-                          return (
-                            <div
-                              key={player.id}
-                              className={`lobby-seat-chip${occupied ? ' is-occupied' : ''}`}
-                            >
-                              <div style={{ marginBottom: 4, color: occupied ? '#7d5470' : '#ad8ba0' }}>Seat {index + 1}</div>
-                              <div style={{ fontWeight: 700, color: occupied ? '#6b2e55' : '#ad8ba0' }}>
-                                {occupied ? player.name : 'Empty'}
-                              </div>
+                      {/* Room ID & capacity */}
+                      <div className="lobby-garden-meta">
+                        <span className="lobby-garden-id" style={{ color: idColor }}>{room.matchID}</span>
+                        <span style={{ color: '#9a7a8a' }}>{occupiedPlayers.length}/{room.maxPlayers}</span>
+                      </div>
+
+                      {/* Join button */}
+                      <button
+                        className="lobby-garden-join"
+                        onClick={() => {
+                          setMatchID(room.matchID);
+                          void joinMatch(room.matchID);
+                        }}
+                        disabled={loading || openSeats <= 0}
+                      >
+                        {loading ? '…' : 'Join'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Ongoing matches — spectate */}
+            {ongoingRooms.length > 0 && (
+              <section className="lobby-rooms-panel lobby-rooms-panel--ongoing">
+                <div className="lobby-rooms-header">
+                  <span className="lobby-rooms-header__title">Live Matches</span>
+                </div>
+                <div className="lobby-room-list">
+                  {ongoingRooms.map(room => {
+                    const players = room.players ?? [];
+                    const creator = players.find(player => String(player.id) === String(room.ownerPlayerId))?.name?.trim()
+                      || players.find(player => !!player.name?.trim())?.name?.trim()
+                      || 'Unknown';
+                    const displayRoomName = room.roomName?.trim() || `${creator}'s room`;
+                    const occupiedPlayers = players.filter(p => !!p.name?.trim());
+                    const roomNameColor = getWhimsicalColor(displayRoomName);
+                    const hostColor = getWhimsicalColor('host:' + creator);
+                    const idColor = getWhimsicalColor('id:' + room.matchID);
+
+                    return (
+                      <div
+                        key={room.matchID}
+                        className="lobby-garden-card lobby-garden-card--spectate"
+                      >
+                        <div className="lobby-garden-flowers">
+                          {occupiedPlayers.slice(0, 4).map((player, idx) => (
+                            <div key={player.id} className="lobby-garden-flower" title={player.name}>
+                              <img
+                                src={getFlowerGif(player.name || String(idx))}
+                                alt=""
+                                className="lobby-garden-flower__gif"
+                                draggable={false}
+                              />
+                              <span className="lobby-garden-flower__name" style={{ color: getWhimsicalColor(player.name || '') }}>
+                                {player.name}
+                              </span>
                             </div>
-                          );
-                        })}
-                      </div>
+                          ))}
+                          {occupiedPlayers.length > 4 && (
+                            <div className="lobby-garden-flower">
+                              <div className="lobby-garden-flower__more">+{occupiedPlayers.length - 4}</div>
+                            </div>
+                          )}
+                        </div>
 
-                      <div className="lobby-room-actions">
+                        <div className="lobby-garden-center">
+                          <div className="lobby-garden-name" style={{ color: roomNameColor }}>{displayRoomName}</div>
+                          <div className="lobby-garden-host" style={{ color: hostColor }}>by {creator}</div>
+                        </div>
+
+                        <div className="lobby-garden-meta">
+                          <span className="lobby-garden-id" style={{ color: idColor }}>{room.matchID}</span>
+                          <span style={{ color: '#9a7a8a' }}>{occupiedPlayers.length}/{room.maxPlayers}</span>
+                        </div>
+
                         <button
-                          onClick={() => {
-                            setMatchID(room.matchID);
-                            void joinMatch(room.matchID);
-                          }}
-                          disabled={loading || openSeats <= 0}
-                          style={{ ...btn, background: '#4ecca3', color: '#1a1a2e', flex: 1 }}
+                          className="lobby-garden-join lobby-garden-join--spectate"
+                          onClick={() => onSpectate(room.matchID)}
                         >
-                          {loading ? 'Joining…' : 'Join Room'}
+                          Spectate
                         </button>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <div className="lobby-join-toggle">
-              <button
-                type="button"
-                className="lobby-toggle-button"
-                onClick={() => setJoinByIdOpen(open => !open)}
-                aria-expanded={joinByIdOpen}
-              >
-                <span>Join by ID</span>
-                <span className="lobby-toggle-arrow">{joinByIdOpen ? '−' : '+'}</span>
-              </button>
-
-              {joinByIdOpen && (
-                <div className="lobby-join-panel">
-                  <label className="lobby-field-label">Match ID</label>
-                  <input
-                    value={matchID}
-                    onChange={e => setMatchID(e.target.value)}
-                    placeholder="Paste ID"
-                    className="lobby-input"
-                  />
-                  <button
-                    onClick={() => void joinMatch()}
-                    disabled={loading || signedInNeedsUsername}
-                    style={{ ...btn, background: '#4ecca3', color: '#1a1a2e', width: '100%', padding: '10px 14px', fontSize: 14 }}
-                  >
-                    {loading ? 'Joining...' : 'Join'}
-                  </button>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
-
-            <div className="lobby-actions-grid">
-              <section className="lobby-panel lobby-action-card">
-                <div className="lobby-section-tag">Create</div>
-                <h3 style={{ marginBottom: 8, color: '#e94560' }}>Start a fresh garden</h3>
-                <label className="lobby-field-label">Room Name</label>
-                <input
-                  value={roomName}
-                  onChange={e => setRoomName(e.target.value)}
-                  placeholder="e.g. Petal Party"
-                  className="lobby-input"
-                />
-                <div className="lobby-identity-note">
-                  Dynamic seating room. Up to 6 players can join, and the game can start once at least 3 are in the room.
-                </div>
-                <button
-                  onClick={createMatch}
-                  disabled={loading || signedInNeedsUsername}
-                  style={{ ...btn, background: '#e94560', color: '#fff', width: '100%', padding: '10px 14px', fontSize: 14 }}
-                >
-                  {loading ? 'Creating...' : 'Create'}
-                </button>
               </section>
+            )}
+
+              </div>
             </div>
-          </div>
-
-          <div className="lobby-right-column">
-            <section className="lobby-panel lobby-rooms-panel lobby-rooms-panel--finished">
-              <div className="lobby-rooms-header">
-                <div>
-                  <div className="lobby-section-tag">Finished Rooms</div>
-                  <h3 style={{ margin: 0, color: '#ffd166' }}>Recent winners</h3>
-                </div>
-              </div>
-
-              <div className="lobby-room-list">
-                {finishedRooms.length === 0 && !loadingRooms && (
-                  <div style={{ color: '#7d5470', fontSize: 13, padding: '8px 2px' }}>
-                    No finished rooms yet.
-                  </div>
-                )}
-
-                {finishedRooms.map(room => {
-                  const players = room.players ?? [];
-                  const creator = players.find(player => String(player.id) === String(room.ownerPlayerId))?.name?.trim()
-                    || players.find(player => !!player.name?.trim())?.name?.trim()
-                    || 'Unknown';
-                  const displayRoomName = room.roomName?.trim() || `${creator}'s room`;
-                  const winnerPlayer = players.find(player => String(player.id) === String(room.winner ?? ''));
-                  const winnerLabel = winnerPlayer?.name?.trim() || 'Unknown';
-
-                  return (
-                    <div key={room.matchID} className="lobby-room-card lobby-room-card--finished">
-                      <div className="lobby-room-title-row">
-                        <div>
-                          <div className="lobby-room-name">{displayRoomName}</div>
-                          <div className="lobby-room-host">Winner: {winnerLabel}</div>
-                        </div>
-                        <div style={{ color: '#7d5470', fontSize: 12, marginLeft: 'auto' }}>{formatTime(room.updatedAt ?? room.createdAt ?? undefined)}</div>
-                      </div>
-
-                      <div style={{ color: '#7d5470', fontSize: 13, lineHeight: 1.5 }}>
-                        <div>Match ID: <span style={{ color: '#6b2e55', fontFamily: 'monospace', fontWeight: 700 }}>{room.matchID}</span></div>
-                        <div>{room.joinedCount} player{room.joinedCount === 1 ? '' : 's'} seated</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-        </div>
         ) : (
           <section className="lobby-panel lobby-leaderboard-page">
             <div className="lobby-page-head">
@@ -1207,7 +1426,23 @@ export function Lobby({ onJoin, storedMatch }: Props) {
         )}
       </div>
 
-      {designerOpen && <CardArtManager onClose={() => setDesignerOpen(false)} />}
+      {/* ── Danmaku floating chat overlay ── */}
+      <div className="danmaku-container" aria-hidden="true">
+        {danmakuComments.map(comment => (
+          <div
+            key={comment.id}
+            className="danmaku-comment"
+            style={{
+              '--danmaku-lane': comment.lane,
+              '--danmaku-duration': `${comment.duration}ms`,
+              '--danmaku-color': comment.color,
+              '--danmaku-top': `${DANMAKU_TOP_OFFSET + comment.lane * DANMAKU_LANE_HEIGHT}px`,
+            } as React.CSSProperties}
+          >
+            {comment.text}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

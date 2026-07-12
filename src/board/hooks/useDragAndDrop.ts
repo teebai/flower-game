@@ -54,6 +54,7 @@ export interface UseDragAndDropOptions {
   onDragStart?: (cardId: string) => void;
   onDragMove?: (pos: { x: number; y: number }) => void;
   onDragEnd?: (cardId: string, pos: { x: number; y: number }, wasReorder: boolean) => void;
+  onDragCancel?: () => void;
   onReorder?: (cardId: string, clientX: number) => void;
 }
 
@@ -62,19 +63,22 @@ export interface UseDragAndDropReturn {
   draggedCardId: string | null;
   dragPreview: DragPreview | null;
   pointerPosition: { x: number; y: number } | null;
+  isSnappingBack: boolean;
+  snapBackTarget: { x: number; y: number } | null;
   onPointerDown: (
     cardId: string,
     event: React.PointerEvent<HTMLElement>,
     opts?: { canPlay?: boolean; canReorder?: boolean }
   ) => void;
   clearDrag: () => void;
+  snapBack: (targetX: number, targetY: number) => void;
 }
 
-const CARD_GESTURE_DEADZONE_PX = 9;
+const CARD_GESTURE_DEADZONE_PX = 18;   // more forgiving for finger tremor
 const CARD_PLAY_LIFT_PX = 14;
 const CARD_SCROLL_INTENT_PX = 14;
 const CARD_REORDER_INTENT_PX = 10;
-const LONG_PRESS_MS = 350;
+const LONG_PRESS_MS = 280;              // slightly faster lift
 
 function pointInsideHandReorderZone(
   handRowRef: React.RefObject<HTMLDivElement | null>,
@@ -93,30 +97,37 @@ function pointInsideHandReorderZone(
 }
 
 export function useDragAndDrop(options: UseDragAndDropOptions): UseDragAndDropReturn {
-  const { handRowRef, onDragStart, onDragMove, onDragEnd, onReorder } = options;
+  const { handRowRef, onDragStart, onDragMove, onDragEnd, onDragCancel, onReorder } = options;
 
   const [mode, setMode] = useState<'idle' | 'pending' | 'dragging' | 'reordering'>('idle');
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [pointerPosition, setPointerPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isSnappingBack, setIsSnappingBack] = useState(false);
+  const [snapBackTarget, setSnapBackTarget] = useState<{ x: number; y: number } | null>(null);
+  const snapBackTimerRef = useRef<number | null>(null);
 
   const sessionRef = useRef<PointerDragSession | null>(null);
   const dragPreviewFrameRef = useRef<number | null>(null);
   const pendingDragPreviewRef = useRef<DragPreview | null>(null);
+  const pointerPositionFrameRef = useRef<number | null>(null);
+  const pendingPointerPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   // Store latest callbacks in refs so the pointer listener effect
   // never re-attaches when callbacks change.
   const onDragStartRef = useRef(onDragStart);
   const onDragMoveRef = useRef(onDragMove);
   const onDragEndRef = useRef(onDragEnd);
+  const onDragCancelRef = useRef(onDragCancel);
   const onReorderRef = useRef(onReorder);
 
   useEffect(() => {
     onDragStartRef.current = onDragStart;
     onDragMoveRef.current = onDragMove;
     onDragEndRef.current = onDragEnd;
+    onDragCancelRef.current = onDragCancel;
     onReorderRef.current = onReorder;
-  }, [onDragStart, onDragMove, onDragEnd, onReorder]);
+  }, [onDragStart, onDragMove, onDragEnd, onDragCancel, onReorder]);
 
   const scheduleDragPreview = useCallback((next: DragPreview | null) => {
     pendingDragPreviewRef.current = next;
@@ -129,18 +140,41 @@ export function useDragAndDrop(options: UseDragAndDropOptions): UseDragAndDropRe
     });
   }, []);
 
+  const schedulePointerPosition = useCallback((next: { x: number; y: number } | null) => {
+    pendingPointerPositionRef.current = next;
+    if (pointerPositionFrameRef.current !== null) return;
+    // Throttle to 50ms (20fps) — human perception can't distinguish this for
+    // drop-zone feedback, and it cuts FlowerBoard re-renders by 3× during drag.
+    pointerPositionFrameRef.current = window.setTimeout(() => {
+      pointerPositionFrameRef.current = null;
+      const p = pendingPointerPositionRef.current;
+      setPointerPosition(p);
+    }, 50);
+  }, []);
+
   const clearDrag = useCallback(() => {
     if (dragPreviewFrameRef.current !== null) {
       window.cancelAnimationFrame(dragPreviewFrameRef.current);
       dragPreviewFrameRef.current = null;
     }
+    if (pointerPositionFrameRef.current !== null) {
+      window.clearTimeout(pointerPositionFrameRef.current);
+      pointerPositionFrameRef.current = null;
+    }
+    if (snapBackTimerRef.current !== null) {
+      window.clearTimeout(snapBackTimerRef.current);
+      snapBackTimerRef.current = null;
+    }
     pendingDragPreviewRef.current = null;
+    pendingPointerPositionRef.current = null;
     setMode('idle');
     setDraggedCardId(null);
     setDragPreview(null);
     setPointerPosition(null);
+    setIsSnappingBack(false);
+    setSnapBackTarget(null);
     const session = sessionRef.current;
-    if (session?.longPressTimer !== null) {
+    if (session && session.longPressTimer !== null) {
       window.clearTimeout(session.longPressTimer);
     }
     sessionRef.current = null;
@@ -155,6 +189,9 @@ export function useDragAndDrop(options: UseDragAndDropOptions): UseDragAndDropRe
     const canPlay = opts?.canPlay ?? false;
     const canReorder = opts?.canReorder ?? false;
     if (!canPlay && !canReorder) return;
+
+    // Reject multi-touch: ignore new pointer-down while a session is active
+    if (sessionRef.current !== null) return;
 
     const sourceEl = event.currentTarget;
     const rect = sourceEl.getBoundingClientRect();
@@ -180,14 +217,17 @@ export function useDragAndDrop(options: UseDragAndDropOptions): UseDragAndDropRe
       longPressTimer: null,
     };
 
-    // Touch: long-press to initiate drag
-    if (pointerType === 'touch' && canPlay) {
+    // Touch: long-press to initiate drag (play or reorder)
+    if (pointerType === 'touch' && (canPlay || canReorder)) {
       longPressTimer = window.setTimeout(() => {
         if (sessionRef.current !== session || session.mode !== 'pending') return;
-        session.mode = 'play';
+        // Determine intent: canPlay → play mode, otherwise reorder if allowed
+        session.mode = canPlay ? 'play' : 'reorder';
         session.dragging = true;
-        setMode('dragging');
-        onDragStartRef.current?.(session.cardId);
+        setMode(session.mode === 'reorder' ? 'reordering' : 'dragging');
+        if (session.mode === 'play') {
+          onDragStartRef.current?.(session.cardId);
+        }
         scheduleDragPreview({
           cardId: session.cardId,
           x: session.startX - session.offsetX,
@@ -236,16 +276,24 @@ export function useDragAndDrop(options: UseDragAndDropOptions): UseDragAndDropRe
 
         if (Math.hypot(dx, dy) < CARD_GESTURE_DEADZONE_PX) return;
 
-        if (session.canPlay) {
+        // Intent resolution: check reorder first (stricter), then play, then scroll
+        let resolvedMode: PointerDragMode = 'pending';
+
+        // Reorder takes priority when inside the hand zone — use a stricter threshold
+        if (session.canReorder && pointInsideHandReorderZone(handRowRef, event.clientX, event.clientY)) {
+          const reorderingSideways = absX >= 20 && absX >= absY * 1.5;
+          if (reorderingSideways) {
+            resolvedMode = 'reorder';
+          }
+        }
+
+        // If not reordering, check play intent
+        if (resolvedMode === 'pending' && session.canPlay) {
           const pulledUp = dy <= -CARD_PLAY_LIFT_PX && absY >= absX * 0.7;
           const scrollingSideways = absX >= CARD_SCROLL_INTENT_PX && absX > absY;
-          session.mode = pulledUp ? 'play' : scrollingSideways ? 'scroll' : 'pending';
-        } else if (session.canReorder) {
-          const reorderingSideways = absX >= CARD_REORDER_INTENT_PX && absX >= absY * 0.8;
-          session.mode = reorderingSideways && pointInsideHandReorderZone(handRowRef, event.clientX, event.clientY)
-            ? 'reorder'
-            : 'pending';
+          resolvedMode = pulledUp ? 'play' : scrollingSideways ? 'scroll' : 'pending';
         }
+        session.mode = resolvedMode;
 
         if (session.mode === 'pending') return;
         if (session.mode === 'scroll') {
@@ -257,6 +305,7 @@ export function useDragAndDrop(options: UseDragAndDropOptions): UseDragAndDropRe
           sessionRef.current = null;
           setMode('idle');
           setDraggedCardId(null);
+          onDragCancelRef.current?.();
           return;
         }
 
@@ -291,7 +340,7 @@ export function useDragAndDrop(options: UseDragAndDropOptions): UseDragAndDropRe
         width: session.width,
         height: session.height,
       });
-      setPointerPosition({ x: event.clientX, y: event.clientY });
+      schedulePointerPosition({ x: event.clientX, y: event.clientY });
       onDragMoveRef.current?.({ x: event.clientX, y: event.clientY });
     };
 
@@ -338,6 +387,9 @@ export function useDragAndDrop(options: UseDragAndDropOptions): UseDragAndDropRe
     if (dragPreviewFrameRef.current !== null) {
       window.cancelAnimationFrame(dragPreviewFrameRef.current);
     }
+    if (pointerPositionFrameRef.current !== null) {
+      window.clearTimeout(pointerPositionFrameRef.current);
+    }
     const session = sessionRef.current;
     if (session) {
       if (session.longPressTimer !== null) {
@@ -349,12 +401,28 @@ export function useDragAndDrop(options: UseDragAndDropOptions): UseDragAndDropRe
     }
   }, []);
 
+  const snapBack = useCallback((targetX: number, targetY: number) => {
+    if (snapBackTimerRef.current !== null) {
+      window.clearTimeout(snapBackTimerRef.current);
+    }
+    setIsSnappingBack(true);
+    setSnapBackTarget({ x: targetX, y: targetY });
+    // Update the drag preview to the snap-back position so CSS transition can animate it
+    setDragPreview(prev => prev ? { ...prev, x: targetX, y: targetY } : null);
+    snapBackTimerRef.current = window.setTimeout(() => {
+      clearDrag();
+    }, 220);
+  }, [clearDrag]);
+
   return {
     mode,
     draggedCardId,
     dragPreview,
     pointerPosition,
+    isSnappingBack,
+    snapBackTarget,
     onPointerDown,
     clearDrag,
+    snapBack,
   };
 }

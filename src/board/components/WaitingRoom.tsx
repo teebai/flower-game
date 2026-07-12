@@ -1,5 +1,19 @@
-import React from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import type { GameState } from '../../types/gameTypes';
+import {
+  type DanmakuComment,
+  getWhimsicalColor,
+  subscribeDanmaku,
+  getDanmakuSnapshot,
+  addDanmakuComment,
+  assignDanmakuLane,
+  occupyLane,
+  getLastDanmakuSendAt,
+  setLastDanmakuSendAt,
+  DANMAKU_MIN_DURATION,
+  DANMAKU_MAX_DURATION,
+  DANMAKU_SEND_COOLDOWN_MS,
+} from '../../danmakuStore';
 
 interface WaitingRoomProps {
   G: GameState;
@@ -24,49 +38,62 @@ interface WaitingRoomProps {
 }
 
 export const WaitingRoom = React.memo(function WaitingRoom({
-  G, playerID, theme, matchCtx, nameOf, isSubmitting, onStart, onReady, onLeave, onKick,
+  G, playerID, matchCtx, nameOf, isSubmitting, onStart, onReady, onLeave, onKick,
 }: WaitingRoomProps) {
   const roomOwnerName = nameOf(G.players.find(p => p.id === G.ownerPlayerId) ?? null) || 'Room owner';
   const joinedRoomCount = G.players.filter(p => p.name.trim()).length;
-  const roomReadyEnabled = joinedRoomCount >= G.minPlayers;
   const myReady = !!playerID && G.readyPlayerIds.includes(playerID);
-  const iAmRoomOwner = !!playerID && G.ownerPlayerId === playerID;
+  const isOwner = playerID === G.ownerPlayerId;
   const joinedPlayers = G.players.filter(p => p.name.trim());
   const readyJoinedCount = joinedPlayers.filter(p => G.readyPlayerIds.includes(p.id)).length;
   const enoughReady = readyJoinedCount >= G.minPlayers;
-  const isOwner = playerID === G.ownerPlayerId;
+
+  /* ── Danmaku chat ── */
+  const [chatInput, setChatInput] = useState('');
+  const danmakuComments = useSyncExternalStore(
+    subscribeDanmaku,
+    getDanmakuSnapshot,
+  );
+
+  function sendChat() {
+    const trimmed = chatInput.trim();
+    if (!trimmed) return;
+    const now = Date.now();
+    if (now - getLastDanmakuSendAt() < DANMAKU_SEND_COOLDOWN_MS) return;
+    setLastDanmakuSendAt(now);
+    const lane = assignDanmakuLane(now);
+    const duration = DANMAKU_MIN_DURATION
+      + Math.random() * (DANMAKU_MAX_DURATION - DANMAKU_MIN_DURATION);
+    const color = getWhimsicalColor(trimmed + now);
+    occupyLane(lane, now, duration);
+    const comment: DanmakuComment = {
+      id: `${now}-${lane}-${Math.random().toString(36).slice(2, 7)}`,
+      text: trimmed,
+      color,
+      lane,
+      duration,
+      createdAt: now,
+    };
+    addDanmakuComment(comment);
+    setChatInput('');
+  }
 
   return (
     <div className="waiting-room-shell">
-      <div
-        className="waiting-room-panel"
-        style={{
-          background: theme.panel,
-          border: `1px solid ${theme.border}`,
-          boxShadow: `0 24px 60px ${theme.glow}`,
-        }}
-      >
+      <div className="waiting-room-panel">
         <div className="waiting-room-header">
           <div className="waiting-room-heading">
-            <div className="waiting-room-kicker" style={{ color: theme.muted }}>
+            <div className="waiting-room-kicker" style={{ color: '#c45a6e' }}>
               Waiting Room
             </div>
-            <h1 className="waiting-room-title" style={{ color: theme.text }}>{G.roomName || 'Flower Room'}</h1>
-            <div className="waiting-room-subtitle" style={{ color: theme.muted }}>
-              Hosted by <b style={{ color: theme.text }}>{roomOwnerName}</b> · room ID <span style={{ fontFamily: 'monospace', color: theme.text }}>{matchCtx?.matchID}</span>
+            <div className="waiting-room-rules-caption" style={{ color: '#6b8a6b' }}>
+              {G.minPlayers}-{G.maxPlayers} players · seats shuffle on start
             </div>
-          </div>
-          <div
-            className="waiting-room-rules"
-            style={{
-              background: theme.panelSoft,
-              border: `1px solid ${theme.border}`,
-              color: theme.text,
-            }}
-          >
-            <div className="waiting-room-card-label">Room rules</div>
-            <div className="waiting-room-card-copy" style={{ color: theme.muted }}>
-              {G.minPlayers}-{G.maxPlayers} players. Owner is auto-ready. Game starts when at least {G.minPlayers} joined players are ready. Seats shuffle on start.
+            <h1 className="waiting-room-title" style={{ color: '#4a2c5a' }}>
+              {G.roomName || 'Flower Room'}
+            </h1>
+            <div className="waiting-room-subtitle" style={{ color: '#7a6a4a' }}>
+              Hosted by <b style={{ color: '#5a3a2a' }}>{roomOwnerName}</b> · room ID <span style={{ fontFamily: 'Teebai, monospace', color: '#8a6a3a' }}>{matchCtx?.matchID}</span>
             </div>
           </div>
         </div>
@@ -74,7 +101,6 @@ export const WaitingRoom = React.memo(function WaitingRoom({
         <div className="waiting-room-seat-grid">
           {G.players.map((player, index) => {
             const occupied = !!player.name.trim();
-            const isMine = player.id === playerID;
             const isOwnerSeat = player.id === G.ownerPlayerId;
             const isReady = G.readyPlayerIds.includes(player.id);
             return (
@@ -82,35 +108,37 @@ export const WaitingRoom = React.memo(function WaitingRoom({
                 key={player.id}
                 className="waiting-room-seat-card"
                 style={{
-                  border: `1px solid ${occupied ? theme.accent : theme.border}`,
-                  background: occupied ? theme.panelSoft : theme.panelAlt,
-                  opacity: occupied ? 1 : 0.82,
+                  background: occupied ? 'rgba(255, 255, 255, 0.50)' : 'rgba(255, 255, 255, 0.28)',
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
                 }}
               >
                 <div className="waiting-room-seat-top">
-                  <div className="waiting-room-seat-index" style={{ color: theme.muted }}>Seat {index + 1}</div>
+                  <div className="waiting-room-seat-index" style={{ color: '#5a6a9a' }}>
+                    Seat {index + 1}
+                  </div>
                   <div className="waiting-room-seat-badges">
                     {isOwnerSeat && (
-                      <span className="waiting-room-badge" style={{ color: theme.text, background: theme.panel }}>
+                      <span
+                        className="waiting-room-badge"
+                        style={{ color: '#7a3a2a', background: '#ffd5c8' }}
+                      >
                         Owner
                       </span>
                     )}
                     {(occupied && isReady) || isOwnerSeat ? (
-                      <span className="waiting-room-badge" style={{ color: '#1a1a2e', background: '#4ecca3' }}>
+                      <span
+                        className="waiting-room-badge"
+                        style={{ color: '#2a5a3a', background: '#c8f0d8' }}
+                      >
                         Ready
                       </span>
                     ) : null}
                   </div>
                 </div>
-                <div className="waiting-room-seat-name" style={{ color: occupied ? theme.text : theme.muted }}>
+                <div className="waiting-room-seat-name" style={{ color: occupied ? '#2a5a5a' : '#9a8aaa' }}>
                   {occupied ? player.name : 'Open seat'}
-                </div>
-                <div className="waiting-room-seat-copy" style={{ color: theme.muted }}>
-                  {occupied
-                    ? isMine
-                      ? 'This is your seat.'
-                      : 'Joined and waiting.'
-                    : 'Another player can join here.'}
                 </div>
                 {isOwner && occupied && !isOwnerSeat && onKick && (
                   <button
@@ -132,11 +160,13 @@ export const WaitingRoom = React.memo(function WaitingRoom({
             <button
               className="waiting-room-btn-primary"
               style={{
-                background: enoughReady ? theme.accent : theme.panelSoft,
-                color: enoughReady ? '#1a1a2e' : theme.muted,
-                border: `1px solid ${enoughReady ? theme.accent : theme.border}`,
+                background: enoughReady ? 'rgba(255, 200, 180, 0.55)' : 'rgba(255, 255, 255, 0.35)',
+                color: '#5a2a2a',
+                border: `2px solid ${enoughReady ? '#d48a7a' : 'rgba(30, 30, 30, 0.15)'}`,
                 cursor: enoughReady ? 'pointer' : 'not-allowed',
-                opacity: enoughReady ? 1 : 0.7,
+                opacity: enoughReady ? 1 : 0.55,
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
               }}
               onClick={onStart}
               disabled={!enoughReady}
@@ -148,8 +178,11 @@ export const WaitingRoom = React.memo(function WaitingRoom({
             <button
               className="waiting-room-btn-primary"
               style={{
-                background: G.readyPlayerIds.includes(playerID) ? theme.panelSoft : theme.accent,
-                color: G.readyPlayerIds.includes(playerID) ? theme.text : '#1a1a2e',
+                background: G.readyPlayerIds.includes(playerID) ? 'rgba(180, 235, 200, 0.50)' : 'rgba(255, 200, 180, 0.45)',
+                color: '#4a2a2a',
+                border: `2px solid ${G.readyPlayerIds.includes(playerID) ? '#7aba8a' : '#d48a7a'}`,
+                backdropFilter: 'blur(6px)',
+                WebkitBackdropFilter: 'blur(6px)',
               }}
               onClick={onReady}
             >
@@ -158,12 +191,48 @@ export const WaitingRoom = React.memo(function WaitingRoom({
           )}
           <button
             className="waiting-room-btn-secondary"
-            style={{ color: theme.muted }}
+            style={{
+              color: '#4a4a5a',
+              background: 'rgba(230, 230, 240, 0.45)',
+              border: '2px solid rgba(90, 90, 120, 0.25)',
+              backdropFilter: 'blur(6px)',
+              WebkitBackdropFilter: 'blur(6px)',
+            }}
             onClick={onLeave}
           >
             ← Leave Room
           </button>
         </div>
+      </div>
+
+      {/* Chat input bar */}
+      <div className="waiting-room-chat-bar">
+        <input
+          type="text"
+          value={chatInput}
+          onChange={e => setChatInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              if (!chatInput.trim()) {
+                e.currentTarget.blur();
+              } else {
+                sendChat();
+              }
+            }
+          }}
+          placeholder="chat here"
+          className={`waiting-room-chat-input${chatInput.trim() ? ' is-typing' : ''}`}
+          maxLength={60}
+        />
+        {chatInput.trim() && (
+          <button
+            type="button"
+            onClick={sendChat}
+            className="waiting-room-chat-send"
+          >
+            Send
+          </button>
+        )}
       </div>
     </div>
   );

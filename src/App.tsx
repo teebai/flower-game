@@ -4,31 +4,30 @@
 // ============================================================
 
 import { useEffect, useState } from 'react';
+import { ErrorBoundary } from './ErrorBoundary';
 import { Client }   from 'boardgame.io/react';
 import { SocketIO } from 'boardgame.io/multiplayer';
 import { useAuth } from './auth/AuthProvider';
 import { clearStoredMatch, loadStoredMatch, saveStoredMatch, type MatchInfo } from './auth/storage';
+import { SERVER } from './config';
 import { FlowerBoard } from './board/FlowerBoard';
 import { Lobby } from './lobby/Lobby';
 import { MatchContext, type MatchSeatPresence } from './matchContext';
 import DebugLayoutPage from './DebugLayoutPage';
 import DebugArenaPage from './DebugArenaPage';
-
-const SERVER = (() => {
-  const host = window.location.hostname;
-  if (host === 'localhost' || host === '127.0.0.1') {
-    return (import.meta.env.VITE_GAME_SERVER_URL as string | undefined) || 'http://localhost:8000';
-  }
-  // Production / tunnel / Railway: same origin (server serves static files + API)
-  return window.location.origin;
-})();
+import { ToastContainer } from './components/ToastContainer';
 
 import { FlowerGame } from '../game/FlowerGame';
 
 const BgioClient = Client({
   game:         FlowerGame as Parameters<typeof Client>[0]['game'],
   board:        FlowerBoard,
-  multiplayer:  SocketIO({ server: SERVER }),
+  multiplayer:  SocketIO({ 
+    server: SERVER,
+    socketOpts: {
+      transports: ['polling', 'websocket'],
+    },
+  }),
   debug:        false,
 });
 
@@ -47,15 +46,49 @@ function storedMatchKey(match: MatchInfo | null, userId: string | null): string 
   return `${userId ?? 'guest'}:${match.matchID}:${match.playerID}`;
 }
 
+const MOBILE_VIEW_KEY = 'flower-game:mobile-view';
+
 export function App() {
   const { loading: authLoading, profile } = useAuth();
+  const [isMobileView, setIsMobileView] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(MOBILE_VIEW_KEY) === '1';
+  });
   const [match, setMatch] = useState<MatchInfo | null>(null);
+  const [spectatingMatchID, setSpectatingMatchID] = useState<string | null>(null);
   const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
   const [seatPresence, setSeatPresence] = useState<Record<string, MatchSeatPresence>>({});
   const [storedMatch, setStoredMatch] = useState<MatchInfo | null>(null);
   const [parkedMatchKey, setParkedMatchKey] = useState('');
   const [leaving, setLeaving] = useState(false);
   const activeUserId = profile?.id ?? null;
+
+  useEffect(() => {
+    if (isMobileView) {
+      document.documentElement.classList.add('mobile-view-active');
+      window.localStorage.setItem(MOBILE_VIEW_KEY, '1');
+    } else {
+      document.documentElement.classList.remove('mobile-view-active');
+      window.localStorage.setItem(MOBILE_VIEW_KEY, '0');
+    }
+  }, [isMobileView]);
+
+  // Global iOS gesture prevention (pinch-zoom) — persists across Lobby → Game routes
+  useEffect(() => {
+    const preventGesture = (event: Event) => event.preventDefault();
+    document.addEventListener('gesturestart', preventGesture, { passive: false });
+    return () => document.removeEventListener('gesturestart', preventGesture);
+  }, []);
+
+  // DEBUG: auto-spectate via query param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const spectateId = params.get('spectate');
+    if (spectateId && !spectatingMatchID && !match) {
+      setSpectatingMatchID(spectateId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (authLoading || match) {
@@ -99,8 +132,10 @@ export function App() {
     saveStoredMatch(match, activeUserId);
   }, [activeUserId, match]);
 
+  // Fetch player names for both players and spectators
+  const activeMatchID = match?.matchID ?? spectatingMatchID ?? null;
   useEffect(() => {
-    if (!match) {
+    if (!activeMatchID) {
       setPlayerNames({});
       setSeatPresence({});
       return;
@@ -109,7 +144,7 @@ export function App() {
     let cancelled = false;
     const fetchNames = async () => {
       try {
-        const res = await fetch(`${SERVER}/games/flower-game/${match.matchID}`);
+        const res = await fetch(`${SERVER}/games/flower-game/${activeMatchID}`);
         if (!res.ok) return;
         const data = await res.json() as MatchMetadataResponse;
         if (cancelled || !data.players) return;
@@ -134,7 +169,7 @@ export function App() {
     void fetchNames();
     const interval = window.setInterval(fetchNames, 3000);
     return () => { cancelled = true; window.clearInterval(interval); };
-  }, [match]);
+  }, [activeMatchID]);
 
   async function leaveMatch() {
     if (!match || leaving) return;
@@ -193,6 +228,35 @@ export function App() {
     setMatch(info);
   }
 
+  function handleSpectate(matchID: string) {
+    setSpectatingMatchID(matchID);
+  }
+
+  function handleLeaveSpectator() {
+    setSpectatingMatchID(null);
+    setPlayerNames({});
+    setSeatPresence({});
+  }
+
+  const mobileToggle = (
+    <button
+      type="button"
+      className="app-mobile-toggle"
+      onClick={() => setIsMobileView(v => !v)}
+      title={isMobileView ? 'Switch to desktop view' : 'Switch to mobile view'}
+      style={{
+        position: 'fixed', bottom: 14, right: 140, zIndex: 9999,
+        background: isMobileView ? '#4ecca3' : '#222',
+        color: isMobileView ? '#1a1a2e' : '#fff',
+        border: '1px solid rgba(255,255,255,0.15)',
+        borderRadius: 20, padding: '5px 12px', fontSize: 33,
+        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+      }}
+    >
+      {isMobileView ? '📱 Mobile' : '🖥️ Desktop'}
+    </button>
+  );
+
   const bugButton = (
     <a
       href="https://flowerbug.a133.mov"
@@ -203,7 +267,7 @@ export function App() {
         position: 'fixed', bottom: 14, right: 14, zIndex: 9999,
         background: '#111', backdropFilter: 'none',
         color: '#fff', border: '1px solid #111',
-        borderRadius: 20, padding: '5px 12px', fontSize: 11,
+        borderRadius: 20, padding: '5px 12px', fontSize: 33,
         textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5,
         boxShadow: 'none',
       }}
@@ -213,18 +277,57 @@ export function App() {
   );
 
   if (window.location.pathname === '/debug-layout') {
-    return <DebugLayoutPage />;
+    return (
+      <>
+        <DebugLayoutPage />
+        {mobileToggle}
+      </>
+    );
   }
 
   if (window.location.pathname === '/debug-arena') {
-    return <DebugArenaPage />;
+    return (
+      <>
+        <DebugArenaPage />
+        {mobileToggle}
+      </>
+    );
+  }
+
+  // Spectator mode
+  if (spectatingMatchID) {
+    return (
+      <>
+        <MatchContext.Provider value={{
+          matchID:     spectatingMatchID,
+          server:      SERVER,
+          seatPresence,
+          onLeave:     handleLeaveSpectator,
+          isSpectator: true,
+        }}>
+          <ErrorBoundary>
+            <BgioClient
+              key={`spectate:${spectatingMatchID}`}
+              matchID={spectatingMatchID}
+              playerNames={playerNames}
+            />
+          </ErrorBoundary>
+        </MatchContext.Provider>
+        {mobileToggle}
+        <ToastContainer />
+      </>
+    );
   }
 
   if (!match) {
     return (
       <>
-        <Lobby onJoin={handleJoin} storedMatch={storedMatch} />
+        <ErrorBoundary>
+          <Lobby onJoin={handleJoin} onSpectate={handleSpectate} storedMatch={storedMatch} />
+        </ErrorBoundary>
+        {mobileToggle}
         {bugButton}
+        <ToastContainer />
       </>
     );
   }
@@ -239,15 +342,20 @@ export function App() {
         server:      SERVER,
         seatPresence,
         onLeave:     () => void leaveMatch(),
+        isSpectator: false,
       }}>
-        <BgioClient
-          key={`${match.matchID}:${match.playerID}`}
-          matchID={match.matchID}
-          playerID={match.playerID}
-          credentials={match.credentials}
-          playerNames={playerNames}
-        />
+        <ErrorBoundary>
+          <BgioClient
+            key={`${match.matchID}:${match.playerID}`}
+            matchID={match.matchID}
+            playerID={match.playerID}
+            credentials={match.credentials}
+            playerNames={playerNames}
+          />
+        </ErrorBoundary>
       </MatchContext.Provider>
+      {mobileToggle}
+      <ToastContainer />
     </>
   );
 }
