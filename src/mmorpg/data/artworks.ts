@@ -1,16 +1,14 @@
 /**
  * artworks.ts — Gallery artwork data + procedural thumbnail generator
  *
- * Each artwork is rendered to an offscreen <canvas> ONCE, and that same canvas
- * is reused both as the in-world PixiJS texture and as the popup <img>. This
- * keeps the two views visually identical and avoids duplicating draw logic.
+ * IN-WORLD THUMBNAIL: each artwork is rendered to an offscreen <canvas> ONCE
+ * (a seeded abstract-floral composition in Teebai's soft, low-saturation,
+ * hand-drawn aesthetic) and used as the orbiting PixiJS texture.
  *
- * Because we don't ship real image assets yet, the thumbnail is a procedurally
- * generated abstract-floral composition driven by the artwork's `seed` and
- * `palette`, in Teebai's soft hand-drawn aesthetic (low-saturation, warm).
- *
- * To use real art later: set `imageUrl` on an artwork and the loader will use
- * that instead of the procedural canvas.
+ * DETAIL POPUP: shows the REAL artwork image loaded from `artwork.imageUrl`
+ * (served from `public/artworks/`). See the imageUrl block near the bottom of
+ * this file for the drop-in convention. The popup never uses the procedural
+ * thumbnail — only real artwork.
  */
 
 export interface Artwork {
@@ -92,8 +90,8 @@ function hex(color: number): string {
  * Deterministic from `artwork.seed` + `artwork.palette`.
  *
  * @param artwork  The artwork to render.
- * @param size     Canvas width/height in px (square). Use ~96 for in-world,
- *                 ~360 for the popup.
+ * @param size     Canvas width/height in px (square). Used for the in-world
+ *                 orbiting thumbnail (~128). The popup uses real images.
  */
 export function generateArtworkCanvas(artwork: Artwork, size: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -261,6 +259,22 @@ export const GALLERY_ARTWORKS: Artwork[] = [
     orbitRadius: 0, orbitSpeed: 0, orbitOffset: 0, orbitTilt: 0,
   },
 ];
+
+/**
+ * Real artwork image URLs.
+ *
+ * The popup displays a REAL artwork image (<img>) loaded from `imageUrl`.
+ * Files are served from the Vite `public/` folder, so `/artworks/art-001.jpg`
+ * maps to `public/artworks/art-001.jpg`.
+ *
+ * 👉 Drop the artist's real images into `public/artworks/` named exactly like
+ *    the artwork id (art-001.jpg … art-008.jpg). Until a file exists, the
+ *    popup shows an elegant empty-state placeholder (never a broken image and
+ *    never the procedural thumbnail).
+ */
+GALLERY_ARTWORKS.forEach((a) => {
+  if (!a.imageUrl) a.imageUrl = `/artworks/${a.id}.jpg`;
+});
 
 /* ═══════════════════════════════════════════════════════════════
    Orbit layout — distribute artworks across 3 elliptical rings
