@@ -1,115 +1,319 @@
 /**
- * MassiveFlower.ts — Large decorative mystical flower for the Gallery zone.
+ * MassiveFlower.ts
+ * A large decorative mystical flower for the Gallery zone center.
+ * 8 petals in purple-to-blue gradient hues with a glowing center.
+ * Sways gently in an ambient breeze.
  *
- * Features:
- *   - 8 radial petals with organic purple-to-blue coloring
- *   - Multi-layered golden center with sparkle dots
- *   - Soft halo glow with breathing pulse
- *   - Gentle sway animation (combined rotation + counter-rotation)
+ * Hand-drawn cartoon style — soft edges, organic shapes.
  */
 
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Circle } from 'pixi.js';
+
+/** Configuration for petal color stops (inner → outer) */
+const PETAL_COLORS = [
+  0x8B5CF6, // Violet
+  0x7C3AED, // Purple
+  0x6D28D9, // Deep purple
+  0x5B21B6, // Indigo-purple
+  0x4C1D95, // Deep violet
+];
+
+/** Center glow colors */
+const CENTER_COLORS = [0xFDE68A, 0xFCD34D, 0xF59E0B, 0xD97706];
 
 export class MassiveFlower extends Container {
+  /** Individual petal Graphics, drawn back-to-front */
   private petals: Graphics[] = [];
-  private center: Graphics;
-  private halo: Graphics;
-  private swayPhase: number = 0;
-  private swaySpeed: number = 0.02;
-  private swayAmount: number = 5; // degrees
 
-  constructor(x: number, y: number, size: number = 150) {
+  /** Flower center disc */
+  private centerDisc: Graphics;
+
+  /** Glow halo behind the flower */
+  private halo: Graphics;
+
+  /** Sway animation phase (radians) */
+  private swayPhase = 0;
+
+  /** Sway speed in radians per ms */
+  private swaySpeed: number;
+
+  /** Maximum sway angle in degrees */
+  private swayAmount: number;
+
+  /** Flower size in pixels (radius scale) */
+  private flowerSize: number;
+
+  /** Number of petals */
+  private readonly petalCount = 8;
+
+  /** Secondary counter-sway for organic feel */
+  private counterSwayPhase = Math.PI * 0.7;
+
+  /** Pulse phase for breathing glow effect */
+  private pulsePhase = 0;
+
+  /** Pulsing "tap me" hint ring (visible until first tap) */
+  private hintRing: Graphics;
+
+  /** Whether the flower accepts taps */
+  private interactive = false;
+
+  /** Whether the flower has been tapped already */
+  private tapped = false;
+
+  /** Handler invoked on first tap */
+  private tapHandler: (() => void) | null = null;
+
+  /** Hint pulse phase */
+  private hintPhase = 0;
+
+  /**
+   * @param x       World X position
+   * @param y       World Y position
+   * @param size    Base radius in pixels (default 150)
+   * @param swaySpeed  Sway speed multiplier (default 0.02)
+   * @param swayAmount Max sway angle in degrees (default 5)
+   */
+  constructor(
+    x: number,
+    y: number,
+    size: number = 150,
+    swaySpeed = 0.02,
+    swayAmount = 5,
+  ) {
     super();
     this.position.set(x, y);
-    this.buildFlower(size);
-  }
+    this.flowerSize = size;
+    this.swaySpeed = swaySpeed;
+    this.swayAmount = swayAmount;
 
-  private buildFlower(size: number): void {
-    // ── Halo glow (drawn first, behind everything) ──
+    // Create halo first (behind everything)
     this.halo = new Graphics();
-    this.halo.circle(0, 0, size * 1.4);
-    this.halo.fill({ color: 0x9b59b6, alpha: 0.08 });
     this.addChild(this.halo);
 
-    // ── Petals ──
-    const petalCount = 8;
-    const petalLength = size * 0.85;
-    const petalWidth = size * 0.35;
-
-    for (let i = 0; i < petalCount; i++) {
-      const angle = (i / petalCount) * Math.PI * 2;
+    // Create petal Graphics objects
+    for (let i = 0; i < this.petalCount; i++) {
       const petal = new Graphics();
-
-      // Gradient-like coloring: purple center → blue tips
-      const t = i / petalCount;
-      const r = Math.floor(107 + t * 30);
-      const g = Math.floor(50 + t * 60);
-      const b = Math.floor(180 + t * 40);
-      const color = (r << 16) | (g << 8) | b;
-
-      // Draw petal as an ellipse offset and rotated
-      petal.ellipse(0, -petalLength * 0.5, petalWidth, petalLength);
-      petal.fill(color);
-      petal.stroke({ width: 2, color: 0x7d3c98 });
-
-      // Vein highlight
-      petal.moveTo(0, -petalLength * 0.8);
-      petal.lineTo(0, -petalLength * 0.2);
-      petal.stroke({ width: 1, color: 0xffffff, alpha: 0.2 });
-
-      petal.rotation = angle;
-      this.addChild(petal);
       this.petals.push(petal);
+      this.addChild(petal);
     }
 
-    // ── Center ──
-    this.center = new Graphics();
+    // Create center disc (on top)
+    this.centerDisc = new Graphics();
+    this.addChild(this.centerDisc);
 
-    // Outer ring
-    this.center.circle(0, 0, size * 0.25);
-    this.center.fill(0xffd700);
-    this.center.stroke({ width: 3, color: 0xffa500 });
+    // Hint ring (above everything; hidden until interaction is enabled)
+    this.hintRing = new Graphics();
+    this.hintRing.visible = false;
+    this.addChild(this.hintRing);
 
-    // Inner circle
-    this.center.circle(0, 0, size * 0.15);
-    this.center.fill(0xffed4a);
-
-    // Sparkle dots
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2;
-      const r = size * 0.2;
-      this.center.circle(Math.cos(a) * r, Math.sin(a) * r, 2);
-      this.center.fill(0xffffff);
-    }
-
-    this.addChild(this.center);
+    this.buildFlower();
+    this.drawHintRing();
   }
 
-  tick(delta: number): void {
-    // Main sway
-    this.swayPhase += this.swaySpeed * delta;
-    const mainSway = Math.sin(this.swayPhase) * (this.swayAmount * Math.PI / 180);
+  // ── Construction ────────────────────────────────────────────
 
-    // Counter-sway for organic feel
-    const counterSway =
-      Math.sin(this.swayPhase * 1.3 + 1) * (this.swayAmount * 0.5 * Math.PI / 180);
+  private buildFlower(): void {
+    this.drawHalo();
+    this.drawPetals();
+    this.drawCenter();
+  }
 
-    // Apply to container
-    this.rotation = mainSway;
+  /** Draw soft glow halo behind the flower. */
+  private drawHalo(): void {
+    const g = this.halo;
+    g.clear();
 
-    // Individual petal breathing
-    for (let i = 0; i < this.petals.length; i++) {
-      const breathe = 1 + Math.sin(this.swayPhase * 0.8 + i * 0.7) * 0.03;
-      this.petals[i].scale.set(breathe);
+    const r = this.flowerSize * 1.4;
+
+    // Outer soft glow
+    g.circle(0, 0, r);
+    g.fill({ color: 0xA78BFA, alpha: 0.06 });
+
+    // Medium glow
+    g.circle(0, 0, r * 0.7);
+    g.fill({ color: 0xC4B5FD, alpha: 0.08 });
+
+    // Inner glow
+    g.circle(0, 0, r * 0.4);
+    g.fill({ color: 0xDDD6FE, alpha: 0.1 });
+  }
+
+  /** Draw all 8 petals arranged radially. */
+  private drawPetals(): void {
+    const size = this.flowerSize;
+
+    for (let i = 0; i < this.petalCount; i++) {
+      const g = this.petals[i];
+      g.clear();
+
+      const angle = (i / this.petalCount) * Math.PI * 2 - Math.PI / 2;
+      const colorIndex = i % PETAL_COLORS.length;
+      const color = PETAL_COLORS[colorIndex];
+
+      // Petal dimensions
+      const petalLen = size * (0.55 + Math.random() * 0.05); // Slight organic variation
+      const petalW = size * 0.22;
+
+      // Position petal outward from center
+      const px = Math.cos(angle) * size * 0.15;
+      const py = Math.sin(angle) * size * 0.15;
+
+      // Draw petal as elongated ellipse, rotated to angle
+      g.ellipse(px, py, petalW, petalLen);
+      g.fill({ color, alpha: 0.85 });
+      g.stroke({ width: 1.5, color: 0x4C1D95, alpha: 0.4 });
+
+      // Petal vein line
+      const veinLen = petalLen * 0.6;
+      const vx = Math.cos(angle) * veinLen;
+      const vy = Math.sin(angle) * veinLen;
+      g.moveTo(px - vx * 0.1, py - vy * 0.1);
+      g.lineTo(px + vx, py + vy);
+      g.stroke({ width: 1, color: 0xFFFFFF, alpha: 0.25 });
+
+      // Lighter petal tip highlight
+      const tipX = px + Math.cos(angle) * petalLen * 0.7;
+      const tipY = py + Math.sin(angle) * petalLen * 0.7;
+      g.ellipse(tipX, tipY, petalW * 0.3, petalLen * 0.15);
+      g.fill({ color: 0xA78BFA, alpha: 0.3 });
+
+      // Rotate entire petal to face outward
+      g.rotation = angle + Math.PI / 2;
     }
+  }
 
-    // Center counter-rotates slightly
-    this.center.rotation = counterSway;
+  /** Draw multi-layered glowing center disc. */
+  private drawCenter(): void {
+    const g = this.centerDisc;
+    g.clear();
 
-    // Halo pulse
-    const haloAlpha = 0.06 + Math.sin(this.swayPhase * 0.5) * 0.02;
-    this.halo.clear();
-    this.halo.circle(0, 0, 210);
-    this.halo.fill({ color: 0x9b59b6, alpha: haloAlpha });
+    const r = this.flowerSize * 0.2;
+
+    // Outer ring
+    g.circle(0, 0, r * 1.3);
+    g.fill({ color: 0xFDE68A, alpha: 0.4 });
+
+    // Middle ring
+    g.circle(0, 0, r);
+    g.fill({ color: 0xFCD34D, alpha: 0.6 });
+
+    // Inner bright disc
+    g.circle(0, 0, r * 0.65);
+    g.fill({ color: 0xF59E0B, alpha: 0.8 });
+
+    // Core highlight
+    g.circle(0, 0, r * 0.35);
+    g.fill({ color: 0xFEF3C7, alpha: 0.9 });
+
+    // Sparkle dots
+    for (let i = 0; i < 6; i++) {
+      const sa = (i / 6) * Math.PI * 2;
+      const sr = r * 0.5;
+      g.circle(Math.cos(sa) * sr, Math.sin(sa) * sr, 2);
+      g.fill(0xFFFFFF, 0.7);
+    }
+  }
+
+  /** Draw the soft "tap me" ring that pulses around the flower. */
+  private drawHintRing(): void {
+    const g = this.hintRing;
+    g.clear();
+    const r = this.flowerSize * 0.95;
+    g.circle(0, 0, r);
+    g.stroke({ width: 3, color: 0xFFFFFF, alpha: 0.7 });
+    g.circle(0, 0, r + 8);
+    g.stroke({ width: 1.5, color: 0xFFFFFF, alpha: 0.35 });
+  }
+
+  // ── Interaction ─────────────────────────────────────────────
+
+  /**
+   * Make the flower tappable. The first tap invokes `onTap` (used to bloom the
+   * gallery artworks) and retires the hint ring.
+   */
+  enableInteraction(onTap: () => void): void {
+    this.interactive = true;
+    this.tapHandler = onTap;
+    this.eventMode = 'static';
+    this.cursor = 'pointer';
+    // Circular hit area covering the whole flower.
+    this.hitArea = new Circle(0, 0, this.flowerSize * 0.95);
+    this.hintRing.visible = true;
+
+    this.on('pointertap', () => {
+      if (this.tapped) return;
+      this.tapped = true;
+      this.hintRing.visible = false;
+      this.tapHandler?.();
+    });
+  }
+
+  /** Whether the flower has been tapped already. */
+  hasBeenTapped(): boolean {
+    return this.tapped;
+  }
+
+  // ── Per-Frame Update ────────────────────────────────────────
+
+  /**
+   * Call every frame with delta time.
+   * @param delta   Frame delta (1.0 at 60fps, use deltaMS for ms)
+   * @param deltaMS Delta time in milliseconds
+   */
+  tick(delta: number, deltaMS: number = delta * 16.67): void {
+    // Main sway
+    this.swayPhase += this.swaySpeed * deltaMS;
+
+    // Counter-sway for organic movement
+    this.counterSwayPhase += this.swaySpeed * 1.3 * deltaMS;
+
+    // Breathing glow pulse
+    this.pulsePhase += 0.0015 * deltaMS;
+
+    // Combined rotation: main sway + subtle counter + tiny noise
+    const mainSway = Math.sin(this.swayPhase) * this.swayAmount;
+    const counterSway = Math.sin(this.counterSwayPhase) * this.swayAmount * 0.3;
+    const noise = Math.sin(this.swayPhase * 2.7) * this.swayAmount * 0.15;
+
+    this.rotation = ((mainSway + counterSway + noise) * Math.PI) / 180;
+
+    // Pulse halo alpha
+    const pulse = 0.5 + 0.5 * Math.sin(this.pulsePhase);
+    this.halo.alpha = 0.6 + pulse * 0.4;
+
+    // Counter-rotate center disc slightly for depth
+    this.centerDisc.rotation = Math.sin(this.pulsePhase * 0.5) * 0.05;
+
+    // Pulse the hint ring until the flower is tapped
+    if (this.interactive && !this.tapped) {
+      this.hintPhase += 0.004 * deltaMS;
+      const hp = 0.5 + 0.5 * Math.sin(this.hintPhase);
+      this.hintRing.alpha = 0.35 + hp * 0.5;
+      const hs = 1 + hp * 0.04;
+      this.hintRing.scale.set(hs);
+    }
+  }
+
+  // ── Setters ─────────────────────────────────────────────────
+
+  setSwaySpeed(speed: number): void {
+    this.swaySpeed = speed;
+  }
+
+  setSwayAmount(degrees: number): void {
+    this.swayAmount = degrees;
+  }
+
+  // ── Cleanup ─────────────────────────────────────────────────
+
+  destroy(options?: { children?: boolean; texture?: boolean; baseTexture?: boolean }): void {
+    for (const petal of this.petals) {
+      petal.destroy();
+    }
+    this.centerDisc.destroy();
+    this.halo.destroy();
+    this.hintRing.destroy();
+    super.destroy(options);
   }
 }
