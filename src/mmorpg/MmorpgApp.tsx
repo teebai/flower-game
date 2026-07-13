@@ -24,7 +24,7 @@ import { ArtworkPopup } from './ui/ArtworkPopup';
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'oneclick-2026-07-13d';
+const BUILD_ID = 'oneclick-2026-07-13e';
 
 interface MmorpgAppProps {
   guestId?: string;
