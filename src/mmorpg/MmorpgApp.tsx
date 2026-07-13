@@ -137,8 +137,8 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       // Wind effect (takes priority over player movement)
       if (windEffect.isActive()) {
         windEffect.tick(deltaMS);
-        // Camera follows character loosely during wind
-        camera.setLerp(0.03);
+        // Tight camera follow during wind so character stays on-screen
+        camera.setLerp(0.1);
       } else {
         // Normal camera follow
         camera.setLerp(0.08);
