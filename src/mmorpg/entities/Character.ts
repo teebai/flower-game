@@ -214,11 +214,27 @@ export class Character extends Container {
     const r = 14 * s;
 
     if (this.currentDir.flip) {
-      // Back of head — N (dir='S'), NE (dir='SE'), NW (dir='SW')
-      const isPureN = dir === 'S';
-      g.ellipse(0, -28, isPureN ? r * 0.9 : r * 0.95, isPureN ? r * 1.05 : r * 1.08);
-      g.fill(0xFFFFFF);
-      g.stroke({ width: 1, color: 0xDDDDDD });
+      // Back of head. Distinguish the three back-facing directions:
+      //   N  (dir='S')  → pure centered back dome
+      //   NE (dir='SE') → 3/4 back, head turned to one side (offset)
+      //   NW (dir='SW') → 3/4 back, mirror offset
+      if (dir === 'S') {
+        g.ellipse(0, -28, r * 0.9, r * 1.05);
+        g.fill(0xFFFFFF);
+        g.stroke({ width: 1, color: 0xDDDDDD });
+      } else {
+        // 3/4 back — NE ('SE') / NW ('SW'). Offset the head toward the
+        // turned side and add a subtle cheek/jaw bump on the near side so
+        // it clearly reads as a turned head, not the symmetric N dome.
+        const toward = dir === 'SE' ? 1 : -1; // local offset dir (container is flipped)
+        g.ellipse(toward * 3, -28, r * 0.95, r * 1.06);
+        g.fill(0xFFFFFF);
+        g.stroke({ width: 1, color: 0xDDDDDD });
+        // Near-side jaw/cheek hint
+        g.ellipse(toward * (r * 0.7), -24, r * 0.32, r * 0.4);
+        g.fill(0xFFFFFF);
+        g.stroke({ width: 1, color: 0xE2E2E2 });
+      }
     } else if (dir === 'S') {
       g.ellipse(0, -28, r, r * 1.1);
       g.fill(0xFFFFFF);
@@ -244,9 +260,20 @@ export class Character extends Container {
     const earH = 22 * es;
 
     if (this.currentDir.flip) {
-      // Back view: ears splay out sideways
-      this.drawEarLobe(g, -12, -32, -earW, earH, true);
-      this.drawEarLobe(g, 12, -32, earW, earH, true);
+      // Back view. N = symmetric splay; NE/NW = asymmetric 3/4 turn.
+      if (dir === 'S') {
+        // Pure back: both ears splay out sideways evenly
+        this.drawEarLobe(g, -12, -32, -earW, earH, true);
+        this.drawEarLobe(g, 12, -32, earW, earH, true);
+      } else {
+        // 3/4 back — NE ('SE') / NW ('SW'): near ear (turned side) is full
+        // and droops outward; far ear is shorter and tucked behind the head.
+        const toward = dir === 'SE' ? 1 : -1; // local turned side (container flipped)
+        // Near ear — prominent, angled outward
+        this.drawEarLobe(g, toward * 14, -31, toward * earW, earH, true);
+        // Far ear — shorter, peeking from behind head on the other side
+        this.drawEarLobe(g, toward * -9, -30, toward * -earW * 0.5, earH * 0.6, true);
+      }
     } else if (dir === 'S') {
       this.drawEarLobe(g, -13, -30, -earW, earH, false);
       this.drawEarLobe(g, 13, -30, earW, earH, false);
@@ -346,7 +373,14 @@ export class Character extends Container {
     const h = 18 * s;
 
     if (this.currentDir.flip) {
-      g.roundRect(-w * 0.7, -16, w * 1.4, h, 4);
+      if (dir === 'S') {
+        // Pure back (N) — centered, narrow
+        g.roundRect(-w * 0.7, -16, w * 1.4, h, 4);
+      } else {
+        // 3/4 back (NE/NW) — shift shoulders toward the turned side
+        const toward = dir === 'SE' ? 1 : -1;
+        g.roundRect(toward * 2 - w * 0.75, -16, w * 1.5, h, 4);
+      }
     } else if (dir === 'S') {
       g.roundRect(-w, -16, w * 2, h, 5);
     } else if (dir === 'E' || dir === 'W') {
