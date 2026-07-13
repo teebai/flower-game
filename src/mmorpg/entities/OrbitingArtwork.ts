@@ -15,8 +15,9 @@
  * y-sorted so nearer pieces (bottom of the ellipse) overlap farther ones and
  * the flower core.
  *
- * Interaction: DOUBLE-TAP opens the detail popup. Single tap is ignored so it
- * never fights click-to-move. A subtle hover ring hints it is interactive.
+ * Interaction: a SINGLE click/tap opens the detail popup. Click-to-move is
+ * suppressed by the parent for that same click, so it never fights movement.
+ * A subtle hover ring hints it is interactive.
  */
 
 import { Container, Graphics, Sprite, Texture, Rectangle } from 'pixi.js';
@@ -24,7 +25,7 @@ import type { Artwork } from '../data/artworks';
 import { generateArtworkCanvas, GALLERY_CENTER } from '../data/artworks';
 import { lerp } from '../utils/math2d';
 
-/** Callback fired when the artwork is double-tapped. */
+/** Callback fired when the artwork is clicked/tapped. */
 export type ArtworkOpenHandler = (artwork: Artwork) => void;
 
 type EmergeState = 'hidden' | 'emerging' | 'orbiting';
@@ -47,10 +48,6 @@ export class OrbitingArtwork extends Container {
   private frame: Graphics;
   private glow: Graphics;
   private hoverRing: Graphics;
-
-  /** Double-tap detection state. */
-  private lastTapTime = 0;
-  private readonly DOUBLE_TAP_MS = 380;
 
   private openHandler: ArtworkOpenHandler | null = null;
 
@@ -118,7 +115,7 @@ export class OrbitingArtwork extends Container {
     this.updateOrbitPosition(0);
   }
 
-  /** Register the double-tap → open-popup handler. */
+  /** Register the single-click → open-popup handler. */
   onOpen(handler: ArtworkOpenHandler): void {
     this.openHandler = handler;
   }
@@ -179,13 +176,9 @@ export class OrbitingArtwork extends Container {
   private handleTap(): void {
     // Ignore taps until the piece has fully emerged.
     if (this.emergeState !== 'orbiting') return;
-    const now = performance.now();
-    if (now - this.lastTapTime <= this.DOUBLE_TAP_MS) {
-      this.lastTapTime = 0;
-      this.openHandler?.(this.data);
-    } else {
-      this.lastTapTime = now;
-    }
+    // Single click opens the detail popup. The parent suppresses the matching
+    // click-to-move via lastArtworkTap, so this never makes the player walk.
+    this.openHandler?.(this.data);
   }
 
   // ── Per-frame update ────────────────────────────────────────
