@@ -1,9 +1,9 @@
 // ============================================================
 // FLOWER GAME — APP ROOT
-// Handles: Lobby → Game screen routing
+// Handles: Lobby → Game screen → MMORPG World routing
 // ============================================================
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Client }   from 'boardgame.io/react';
 import { SocketIO } from 'boardgame.io/multiplayer';
@@ -18,6 +18,9 @@ import DebugArenaPage from './DebugArenaPage';
 import { ToastContainer } from './components/ToastContainer';
 
 import { FlowerGame } from '../game/FlowerGame';
+
+// Lazy-load MMORPG world to avoid bundling PixiJS for card-game players
+const MmorpgApp = lazy(() => import('./mmorpg/MmorpgApp').then(m => ({ default: m.MmorpgApp })));
 
 const BgioClient = Client({
   game:         FlowerGame as Parameters<typeof Client>[0]['game'],
@@ -73,7 +76,7 @@ export function App() {
     }
   }, [isMobileView]);
 
-  // Global iOS gesture prevention (pinch-zoom) — persists across Lobby → Game routes
+  // Global iOS gesture prevention (pinch-zoom)
   useEffect(() => {
     const preventGesture = (event: Event) => event.preventDefault();
     document.addEventListener('gesturestart', preventGesture, { passive: false });
@@ -184,7 +187,7 @@ export function App() {
           const room = await roomRes.json() as MatchRoomSummary;
           startedMatch = Boolean(room.started);
           if (!room.started) {
-            const leaveRes = await fetch(`${SERVER}/rooms/${encodeURIComponent(match.matchID)}/leave`, {
+            const leaveRes = await fetch(`${SERVER}/rooms/${match.matchID}/leave`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ playerID: match.playerID, credentials: match.credentials }),
@@ -276,6 +279,23 @@ export function App() {
     </a>
   );
 
+  // === MMORPG WORLD ROUTE ===
+  if (window.location.pathname === '/world') {
+    return (
+      <Suspense fallback={
+        <div style={{
+          position: 'fixed', inset: 0, background: '#1a1a2e',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#fff', fontSize: 24, fontFamily: 'sans-serif',
+        }}>
+          Entering teebai.flowers world...
+        </div>
+      }>
+        <MmorpgApp guestId={activeUserId || generateGuestId()} />
+      </Suspense>
+    );
+  }
+
   if (window.location.pathname === '/debug-layout') {
     return (
       <>
@@ -358,4 +378,9 @@ export function App() {
       <ToastContainer />
     </>
   );
+}
+
+// Helper for guest ID generation in MMORPG route
+function generateGuestId(): string {
+  return 'guest_' + Math.random().toString(36).substring(2, 10);
 }
