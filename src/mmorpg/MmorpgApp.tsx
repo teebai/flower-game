@@ -24,7 +24,7 @@ import { ArtworkPopup } from './ui/ArtworkPopup';
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'hd-zoom-single-2026-07-13i';
+const BUILD_ID = 'wind-v2-steer-land-2026-07-13a';
 
 interface MmorpgAppProps {
   guestId?: string;
@@ -72,6 +72,11 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
     // Wind effect
     const windEffect = new WindEffect();
 
+    // Timestamp of the most recent wind landing — suppresses the stale
+    // click that triggered the wind from also moving the character after
+    // landing (the browser 'click' event fires after pointerup).
+    let lastWindEnd = 0;
+
     // Zone manager
     const zoneManager = new ZoneManager();
     zoneManager.setCallbacks({
@@ -80,8 +85,9 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
         controller.setEnabled(false);
         // Trigger wind blow
         windEffect.trigger(char, x, y, () => {
-          // Wind complete — re-enable control
+          // Wind complete — re-enable control and arm the stale-click guard
           controller.setEnabled(true);
+          lastWindEnd = performance.now();
         });
       },
       onEnterHotSpring: () => {
@@ -169,10 +175,43 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       // Ignore the click if it just landed on an artwork (prevents the
       // character from walking when the player taps an orbiting piece).
       if (performance.now() - lastArtworkTap < 300) return;
+      // Ignore the click that immediately follows a wind landing (the
+      // press that triggered the wind resolves as a click on pointerup).
+      if (performance.now() - lastWindEnd < 350) return;
       const worldPos = camera.screenToWorld(e.clientX, e.clientY);
       controller.handleClick(worldPos.x, worldPos.y);
     };
     app.canvas.addEventListener('click', handleClick);
+
+    // ── Pointer steering during wind (touch-drag + mouse) ──
+    // Drag from the press point: direction = lean direction, magnitude
+    // ramps from a 24px deadzone to full at 120px. Works alongside the
+    // keyboard steer vector (keyboard wins when both are active).
+    let pointerSteer = { x: 0, y: 0 };
+    let steerPointerId: number | null = null;
+    let steerStart = { x: 0, y: 0 };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!windEffect.isActive()) return;
+      steerPointerId = e.pointerId;
+      steerStart = { x: e.clientX, y: e.clientY };
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerId !== steerPointerId) return;
+      const dx = e.clientX - steerStart.x, dy = e.clientY - steerStart.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 24) { pointerSteer = { x: 0, y: 0 }; return; }
+      const m = Math.min(1, len / 120);
+      pointerSteer = { x: (dx / len) * m, y: (dy / len) * m };
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerId === steerPointerId) { steerPointerId = null; pointerSteer = { x: 0, y: 0 }; }
+    };
+    app.canvas.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    // pointercancel (e.g. OS gesture interrupt on mobile) must also release
+    // the steer pointer or the input would stick for the rest of the flight.
+    window.addEventListener('pointercancel', onPointerUp);
 
     // Resize handler
     const handleResize = () => {
@@ -209,6 +248,12 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
 
       // Wind effect (takes priority over player movement)
       if (windEffect.isActive()) {
+        // Feed steering every frame: keyboard wins, else pointer drag.
+        const ks = controller.getSteerVector();
+        windEffect.setSteerInput(
+          ks.x !== 0 || ks.y !== 0 ? ks.x : pointerSteer.x,
+          ks.x !== 0 || ks.y !== 0 ? ks.y : pointerSteer.y,
+        );
         windEffect.tick(deltaMS);
         // Tight camera follow during wind so character stays on-screen
         camera.setLerp(0.1);
@@ -251,17 +296,26 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       hudTimer += deltaMS;
       if (hudTimer > 160) {
         hudTimer = 0;
+        const windOn = windEffect.isActive();
         hud.textContent =
           `BUILD ${BUILD_ID}\n` +
           `X:${character.x.toFixed(1)}  Y:${character.y.toFixed(1)}  Z:${character.z.toFixed(1)}\n` +
-          `zone:${currentZone}  wind:${windEffect.isActive() ? 'ON' : 'off'}\n` +
-          `cam:${camera.getPosition().x.toFixed(0)},${camera.getPosition().y.toFixed(0)}`;
+          `zone:${currentZone}  wind:${windOn ? 'ON' : 'off'}\n` +
+          `cam:${camera.getPosition().x.toFixed(0)},${camera.getPosition().y.toFixed(0)}` +
+          (windOn
+            ? `\nsteer: WASD/drag · brake: hold against wind\n` +
+              `braking:${windEffect.getState().braking ? 'YES' : 'no'}`
+            : '');
       }
     });
 
     // Cleanup function
     return () => {
       app.canvas.removeEventListener('click', handleClick);
+      app.canvas.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
       window.removeEventListener('resize', handleResize);
       hud.remove();
       artworkPopup.destroy();
