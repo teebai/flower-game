@@ -5,6 +5,9 @@ import purgeCSS from 'vite-plugin-purgecss';
 // Safelist: all string tokens found in source files that look like CSS classes.
 // This catches dynamically-constructed class names (template literals, conditionals).
 const SAFELIST = [
+  // PhotoSwipe v5 injects its classes at runtime (pswp, pswp__img, pswp--open, …),
+  // so they never appear in source files — keep them all.
+  /^pswp/,
   /^is-/, /^has-/, /^v2-/, /^theme-/, /^layout-/, /^scene-/, /^page$/,
   /^garden-/, /^action-/, /^lobby-/, /^arena-/, /^board-/, /^player-/,
   /^match-/, /^chat-/, /^card-/, /^discard-/, /^bug-report-/, /^game-menu-/,
