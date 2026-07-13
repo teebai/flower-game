@@ -56,7 +56,7 @@ export class MassiveFlower extends Container {
   private hintRing: Graphics;
 
   /** Whether the flower accepts taps */
-  private interactive = false;
+  private interactionEnabled = false;
 
   /** Whether the flower has been tapped already */
   private tapped = false;
@@ -229,11 +229,15 @@ export class MassiveFlower extends Container {
   // ── Interaction ─────────────────────────────────────────────
 
   /**
-   * Make the flower tappable. The first tap invokes `onTap` (used to bloom the
-   * gallery artworks) and retires the hint ring.
+   * Make the flower tappable. A SINGLE click/press invokes `onTap` (used to
+   * bloom the gallery artworks) and retires the hint ring.
+   *
+   * Uses `pointerdown` (not `pointertap`) so the flower responds the instant it
+   * is pressed and can never be cancelled by a tiny drag — it is always
+   * exactly one click.
    */
   enableInteraction(onTap: () => void): void {
-    this.interactive = true;
+    this.interactionEnabled = true;
     this.tapHandler = onTap;
     this.eventMode = 'static';
     this.cursor = 'pointer';
@@ -241,8 +245,8 @@ export class MassiveFlower extends Container {
     this.hitArea = new Circle(0, 0, this.flowerSize * 0.95);
     this.hintRing.visible = true;
 
-    this.on('pointertap', () => {
-      if (this.tapped) return;
+    this.on('pointerdown', () => {
+      if (this.tapped) return; // only the very first press blooms
       this.tapped = true;
       this.hintRing.visible = false;
       this.tapHandler?.();
@@ -286,7 +290,7 @@ export class MassiveFlower extends Container {
     this.centerDisc.rotation = Math.sin(this.pulsePhase * 0.5) * 0.05;
 
     // Pulse the hint ring until the flower is tapped
-    if (this.interactive && !this.tapped) {
+    if (this.interactionEnabled && !this.tapped) {
       this.hintPhase += 0.004 * deltaMS;
       const hp = 0.5 + 0.5 * Math.sin(this.hintPhase);
       this.hintRing.alpha = 0.35 + hp * 0.5;
