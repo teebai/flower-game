@@ -11,8 +11,9 @@
  * button and ‹ › navigation stay pinned.
  *
  * HD ZOOM: clicking the artwork image opens a fullscreen PhotoSwipe lightbox
- * (pinch / wheel / double-tap zoom, drag-to-pan, swipe / arrow navigation).
- * The heavy PhotoSwipe core is dynamically imported on first zoom, so it adds
+ * focused on that single piece (pinch / wheel / double-tap zoom, drag-to-pan).
+ * The zoom shows only the one artwork — no prev/next navigation inside it. The
+ * heavy PhotoSwipe core is dynamically imported on first zoom, so it adds
  * nothing to the main game bundle.
  *
  * The popup is a singleton — reuse it via show()/hide(). It appends itself to
@@ -223,21 +224,25 @@ export class ArtworkPopup {
   // ── HD zoom (PhotoSwipe) ────────────────────────────────────
 
   /**
-   * Build (once) the fullscreen zoom lightbox. The heavy PhotoSwipe core is
-   * pulled in via dynamic import() on first use, so it never touches the main
-   * game bundle. The whole collection becomes a swipeable/arrow-navigable
-   * gallery; HD files (art.hdUrl) are fetched only when a slide opens.
+   * Build a fullscreen zoom lightbox focused on a SINGLE artwork. The zoom
+   * view shows only that one piece — there is no prev/next navigation inside
+   * the zoom (no arrows, no swipe, no arrow-key navigation). The heavy
+   * PhotoSwipe core is pulled in via dynamic import() on first use, so it
+   * never touches the main game bundle.
    */
-  private ensureLightbox(): PhotoSwipeLightbox {
-    if (this.lightbox) return this.lightbox;
+  private buildZoom(art: Artwork): PhotoSwipeLightbox {
+    // Recreate so it always points at the requested artwork.
+    this.lightbox?.destroy();
+    this.lightbox = null;
 
-    const dataSource = this.collection.map((art) => ({
+    // Single-item gallery → PhotoSwipe shows no prev/next controls.
+    const dataSource = [{
       src: art.hdUrl || art.imageUrl || '',
       width: art.hdWidth ?? art.width,
       height: art.hdHeight ?? art.height,
       msrc: art.imageUrl, // crisp 900px thumb shown while the HD file streams in
       alt: art.title,
-    }));
+    }];
 
     const lb = new PhotoSwipeLightbox({
       dataSource,
@@ -248,6 +253,7 @@ export class ArtworkPopup {
       wheelToZoom: true, // desktop: plain wheel zooms (no Ctrl needed)
       imageClickAction: 'zoom', // click the image to zoom in further
       tapAction: 'toggle-controls', // mobile: tap toggles the UI
+      arrowKeys: false, // no keyboard navigation (single image)
       padding: { top: 20, bottom: 20, left: 20, right: 20 },
     });
 
@@ -261,11 +267,12 @@ export class ArtworkPopup {
     return lb;
   }
 
-  /** Open the fullscreen HD zoom, focused on the current artwork. */
+  /** Open the fullscreen HD zoom for the current artwork only. */
   private openZoom(): void {
-    const idx = this.currentIndex >= 0 ? this.currentIndex : 0;
+    const art = this.collection[this.currentIndex];
+    if (!art) return;
     this.zoomOpen = true;
-    this.ensureLightbox().loadAndOpen(idx);
+    this.buildZoom(art).loadAndOpen(0);
   }
 
   // ── Rendering ───────────────────────────────────────────────
