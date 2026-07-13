@@ -161,8 +161,8 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       camera.update(delta);
       camera.applyTo(worldContainer);
 
-      // Update entities
-      character.tick(delta);
+      // Update entities (Character expects real milliseconds)
+      character.tick(deltaMS);
       galleryFlower.tick(delta);
       minigamePortal.tick(delta);
       shopPortal.tick(delta);
