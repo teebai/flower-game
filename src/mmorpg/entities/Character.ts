@@ -2,7 +2,8 @@
  * Character.ts — Player character entity for teebai.flowers MMORPG.
  *
  * Teebai's signature white humanoid: no hair, no nose, no apparel.
- * Flower eyes, smiley mouth, long earlobes.
+ * Daisy eyes, wide crescent grin, long earlobes — elongated ~6-head-tall
+ * noodle figure drawn with single-weight hand-drawn bezier lines.
  * 8-directional spriteless rendering via PixiJS Graphics.
  *
  * STRUCTURE (critical for wind/fly effect):
@@ -41,6 +42,9 @@ import type { CharacterDNA } from '../game/CharacterGenerator';
 import { angleToDirection8, clamp } from '../utils/math2d';
 import { EarlobeSim } from './EarlobeSim';
 
+/** Daisy petal count per eyeType (0–5) — the real-art variant spread. */
+const DAISY_PETALS = [6, 7, 8, 9, 10, 12];
+
 interface CharacterParts {
   glow: Graphics;
   torso: Graphics;
@@ -67,7 +71,7 @@ interface EarLayoutEntry {
   alpha: number;
   /** Rest-length multiplier (far-short back lobe = 0.6×). */
   lenMul: number;
-  /** Outline tint (0xCCCCCC front, 0xDDDDDD back/far — old drawEars colors). */
+  /** Outline tint (0xBBBBBB front, 0xDDDDDD back/far — spec single-weight line). */
   stroke: number;
 }
 
@@ -77,12 +81,12 @@ interface EarLayoutEntry {
  * so attachment can never disagree with the drawn torso.
  */
 interface BodyMetrics {
-  torsoTop: number;     // constant -16 (neck line — head join stays untouched)
-  hipY: number;         // torsoTop + torsoH  (actual bottom of torso)
-  torsoHalfW: number;   // half-width from the dir-dependent torso formula
+  torsoTop: number;     // constant -56 (neck line — head join stays untouched)
+  hipY: number;         // torsoTop + 26·ts  (actual bottom of torso)
+  torsoHalfW: number;   // shoulder half-width from the dir-dependent table
   shoulderX: number;    // torsoHalfW * SHOULDER_INSET
-  shoulderY: number;    // torsoTop + 3
-  hipSpread: number;    // clamp((isSide ? 1 : 5) * legScale, 0, torsoHalfW * HIP_SPREAD_MAX)
+  shoulderY: number;    // constant -54 (shoulder line)
+  hipSpread: number;    // clamp((isSide ? 0.8 : 3) * legScale, 0, torsoHalfW * HIP_SPREAD_MAX)
 }
 
 export class Character extends Container {
@@ -154,18 +158,20 @@ export class Character extends Container {
   private readonly LAND_SQUASH = 0.22;
 
   // ── Rig tuning constants ──
-  /** Walk swing amplitude in radians (~16°). */
-  private readonly SWING = 0.28;
+  /** Walk swing amplitude in radians (~14°, retuned for the longer noodle limbs). */
+  private readonly SWING = 0.24;
   /** Arms swing at this fraction of the leg swing, anti-phase. */
   private readonly ARM_SWING_RATIO = 0.8;
   /** Leg containers sit this many px ABOVE the hip line (into the torso). */
   private readonly HIP_OVERLAP = 2;
   /** Shoulder anchors sit at this fraction of the torso half-width. */
-  private readonly SHOULDER_INSET = 0.85;
+  private readonly SHOULDER_INSET = 0.95;
   /** Hip spread never exceeds this fraction of the torso half-width. */
-  private readonly HIP_SPREAD_MAX = 0.55;
+  private readonly HIP_SPREAD_MAX = 0.6;
   /** Neck line: torso top is anchored here in every direction. */
-  private readonly TORSO_TOP = -16;
+  private readonly TORSO_TOP = -56;
+  /** Shoulder line: arm joint anchors sit here in every direction. */
+  private readonly SHOULDER_Y = -54;
 
   // ── Earlobe physics tuning (driver side — sim internals in EarlobeSim.ts) ──
   /** EMA factor for world→body-local velocity smoothing (0..1 per frame). */
@@ -215,14 +221,14 @@ export class Character extends Container {
     this.lobeL = new EarlobeSim({
       segLen: (22 * es) / 5,
       width: 2 * (5 * es), // matches old earW·2
-      anchorX: -13,
-      anchorY: -30,
+      anchorX: -6.5,
+      anchorY: -63,
     });
     this.lobeR = new EarlobeSim({
       segLen: (22 * es) / 5,
       width: 2 * (5 * es),
-      anchorX: 13,
-      anchorY: -30,
+      anchorX: 6.5,
+      anchorY: -63,
     });
 
     this.parts = this.createParts();
@@ -450,26 +456,28 @@ export class Character extends Container {
     const ts = this.dna.torsoScale * this.dna.bodyScale;
     const ls = this.dna.legScale * this.dna.bodyScale;
 
-    const torsoTop = this.TORSO_TOP;
-    const torsoH = 18 * ts;
+    const torsoTop = this.TORSO_TOP; // -56
+    const torsoH = 26 * ts;
     const hipY = torsoTop + torsoH;
 
-    // Half-width factor mirrors drawTorso()'s per-direction rect formula.
-    let halfFactor: number;
+    // Shoulder half-width per direction — the SAME values drawTorso() draws
+    // its bezier shoulder line with (full widths: S 9, E/W 6, SE/SW 7.6,
+    // back N 6.4, back NE/NW 7), so limb anchors always match the torso.
+    let torsoHalfW: number;
     if (this.currentDir.flip) {
-      halfFactor = dir === 'S' ? 0.7 : 0.75;
+      torsoHalfW = (dir === 'S' ? 3.2 : 3.5) * ts; // back N / back NE+NW
     } else if (dir === 'S') {
-      halfFactor = 1;
+      torsoHalfW = 4.5 * ts;
     } else if (dir === 'E' || dir === 'W') {
-      halfFactor = 0.5;
+      torsoHalfW = 3 * ts;
     } else {
-      halfFactor = 0.85; // SE / SW
+      torsoHalfW = 3.8 * ts; // SE / SW
     }
-    const torsoHalfW = 12 * ts * halfFactor;
 
     const isSide = dir === 'E' || dir === 'W';
-    const hipSpread = Math.min(
-      Math.max((isSide ? 1 : 5) * ls, 0),
+    const hipSpread = clamp(
+      (isSide ? 0.8 : 3) * ls,
+      0,
       torsoHalfW * this.HIP_SPREAD_MAX,
     );
 
@@ -478,7 +486,7 @@ export class Character extends Container {
       hipY,
       torsoHalfW,
       shoulderX: torsoHalfW * this.SHOULDER_INSET,
-      shoulderY: torsoTop + 3,
+      shoulderY: this.SHOULDER_Y,
       hipSpread,
     };
   }
@@ -487,15 +495,17 @@ export class Character extends Container {
     const g = this.shadowGraphics;
     g.clear();
     const s = this.dna.bodyScale;
-    g.ellipse(0, 0, 14 * s, 6 * s);
-    g.fill(0x000000, 0.15);
+    // Smaller shadow matching the slim figure (spec: 10×4 × bodyScale).
+    g.ellipse(0, 0, 10 * s, 4 * s);
+    g.fill({ color: 0x000000, alpha: 0.15 });
   }
 
   private drawHead(dir: string): void {
     const g = this.parts.head;
     g.clear();
-    const s = this.dna.headScale * this.dna.bodyScale;
-    const r = 14 * s;
+    const hs = this.dna.headScale * this.dna.bodyScale;
+    const r = 6 * hs;          // small round head (spec: 6 × headScale)
+    const cy = -63;            // head center line (spec: −63)
 
     if (this.currentDir.flip) {
       // Back of head. Distinguish the three back-facing directions:
@@ -503,7 +513,7 @@ export class Character extends Container {
       //   NE (dir='SE') → 3/4 back, head turned to one side (offset)
       //   NW (dir='SW') → 3/4 back, mirror offset
       if (dir === 'S') {
-        g.ellipse(0, -28, r * 0.9, r * 1.05);
+        g.ellipse(0, cy, r * 0.95, r * 1.03);
         g.fill(0xFFFFFF);
         g.stroke({ width: 1, color: 0xDDDDDD });
       } else {
@@ -511,28 +521,30 @@ export class Character extends Container {
         // turned side and add a subtle cheek/jaw bump on the near side so
         // it clearly reads as a turned head, not the symmetric N dome.
         const toward = dir === 'SE' ? 1 : -1; // local offset dir (container is flipped)
-        g.ellipse(toward * 3, -28, r * 0.95, r * 1.06);
+        g.ellipse(toward * 2, cy, r * 0.95, r * 1.05);
         g.fill(0xFFFFFF);
         g.stroke({ width: 1, color: 0xDDDDDD });
-        // Near-side jaw/cheek hint
-        g.ellipse(toward * (r * 0.7), -24, r * 0.32, r * 0.4);
+        // Near-side jaw/cheek hint (kept from the old drawHead)
+        g.ellipse(toward * (r * 0.75), cy + 3, r * 0.3, r * 0.38);
         g.fill(0xFFFFFF);
         g.stroke({ width: 1, color: 0xE2E2E2 });
       }
     } else if (dir === 'S') {
-      g.ellipse(0, -28, r, r * 1.1);
+      // Front: round with a slight vertical ellipse (ry = r × 1.05).
+      g.ellipse(0, cy, r, r * 1.05);
       g.fill(0xFFFFFF);
-      g.stroke({ width: 1, color: 0xCCCCCC });
+      g.stroke({ width: 1, color: 0xBBBBBB });
     } else if (dir === 'E' || dir === 'W') {
       const side = dir === 'E' ? 1 : -1;
-      g.ellipse(side * 2, -28, r * 0.85, r * 1.05);
+      g.ellipse(side * 1.5, cy, r * 0.92, r * 1.05);
       g.fill(0xFFFFFF);
-      g.stroke({ width: 1, color: 0xCCCCCC });
+      g.stroke({ width: 1, color: 0xBBBBBB });
     } else {
       // SE / SW — 3/4 front
-      g.ellipse(0, -28, r * 0.95, r * 1.08);
+      const side = dir === 'SE' ? 1 : -1;
+      g.ellipse(side * 0.8, cy, r * 0.97, r * 1.05);
       g.fill(0xFFFFFF);
-      g.stroke({ width: 1, color: 0xCCCCCC });
+      g.stroke({ width: 1, color: 0xBBBBBB });
     }
   }
 
@@ -548,45 +560,47 @@ export class Character extends Container {
       // Back view. N = symmetric; NE ('SE') / NW ('SW') = 3/4 turn.
       if (dir === 'S') {
         return [
-          { x: -12, y: -32, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD },
-          { x: 12, y: -32, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD },
+          { x: -5.5, y: -64, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD },
+          { x: 5.5, y: -64, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD },
         ];
       }
       // toward: local turned side (container is flipped).
+      // near (±6.5, −63.5) full; far (∓4, −63) half-width, 0.75 alpha, 0.6 length.
       const toward = dir === 'SE' ? 1 : -1;
       return [
         toward === 1
-          ? { x: -9, y: -30, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 0.6, stroke: 0xDDDDDD }  // far
-          : { x: -14, y: -31, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD },        // near
+          ? { x: -4, y: -63, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 0.6, stroke: 0xDDDDDD }    // far
+          : { x: -6.5, y: -63.5, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD },      // near
         toward === 1
-          ? { x: 14, y: -31, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD }          // near
-          : { x: 9, y: -30, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 0.6, stroke: 0xDDDDDD },    // far
+          ? { x: 6.5, y: -63.5, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD }        // near
+          : { x: 4, y: -63, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 0.6, stroke: 0xDDDDDD },    // far
       ];
     }
     if (dir === 'S') {
       return [
-        { x: -13, y: -30, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xCCCCCC },
-        { x: 13, y: -30, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xCCCCCC },
+        { x: -6.5, y: -63, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xBBBBBB },
+        { x: 6.5, y: -63, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xBBBBBB },
       ];
     }
     if (dir === 'E' || dir === 'W') {
-      // One side only at ±14; the hidden lobe keeps simulating (invisibly)
-      // at its front-S socket (±13) so a later reveal already carries
+      // One side only at ±7.5; the hidden lobe keeps simulating (invisibly)
+      // at its front-S socket (±6.5) so a later reveal already carries
       // natural momentum.
       return [
-        { x: dir === 'W' ? -14 : -13, y: -30, visible: dir === 'W', wMul: 1, alpha: dir === 'W' ? 1 : 0, lenMul: 1, stroke: 0xCCCCCC },
-        { x: dir === 'E' ? 14 : 13, y: -30, visible: dir === 'E', wMul: 1, alpha: dir === 'E' ? 1 : 0, lenMul: 1, stroke: 0xCCCCCC },
+        { x: dir === 'W' ? -7.5 : -6.5, y: -63, visible: dir === 'W', wMul: 1, alpha: dir === 'W' ? 1 : 0, lenMul: 1, stroke: 0xBBBBBB },
+        { x: dir === 'E' ? 7.5 : 6.5, y: -63, visible: dir === 'E', wMul: 1, alpha: dir === 'E' ? 1 : 0, lenMul: 1, stroke: 0xBBBBBB },
       ];
     }
-    // SE / SW — near lobe full, far lobe subdued (half width, 0.75 alpha).
+    // SE / SW — near lobe full at ±6, far lobe subdued at ∓3.5 (half width,
+    // 0.75 alpha, y −63.5).
     const isSE = dir === 'SE';
     return [
       isSE
-        ? { x: -8, y: -30, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 1, stroke: 0xDDDDDD }   // far
-        : { x: -13, y: -30, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xCCCCCC },      // near
+        ? { x: -3.5, y: -63.5, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 1, stroke: 0xDDDDDD }  // far
+        : { x: -6, y: -63, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xBBBBBB },          // near
       isSE
-        ? { x: 13, y: -30, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xCCCCCC }        // near
-        : { x: 8, y: -30, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 1, stroke: 0xDDDDDD },   // far
+        ? { x: 6, y: -63, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xBBBBBB }            // near
+        : { x: 3.5, y: -63.5, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 1, stroke: 0xDDDDDD },  // far
     ];
   }
 
@@ -623,35 +637,68 @@ export class Character extends Container {
 
     const es = this.dna.eyeScale * this.dna.bodyScale;
     const color = this.dna.eyePetalColor;
+    const petals = DAISY_PETALS[this.dna.eyeType] ?? 8;
 
     if (dir === 'S') {
-      this.drawFlowerEye(g, -8, -30, es, color);
-      this.drawFlowerEye(g, 8, -30, es, color);
+      // Two HUGE daisies — each ≈ 43% of head width, per the real art.
+      this.drawDaisyEye(g, -3, -63, 2.6 * es, color, petals, 0.85);
+      this.drawDaisyEye(g, 3, -63, 2.6 * es, color, petals, 0.85);
     } else if (dir === 'E' || dir === 'W') {
-      this.drawFlowerEye(g, dir === 'E' ? 10 : -10, -30, es * 0.85, color);
+      this.drawDaisyEye(g, dir === 'E' ? 3.2 : -3.2, -63, 2.4 * es, color, petals, 0.85);
     } else {
-      // SE / SW
+      // SE / SW — near daisy full, far daisy smaller and dimmed.
       const isSE = dir === 'SE';
-      this.drawFlowerEye(g, isSE ? 9 : -9, -30, es * 0.9, color);
-      this.drawFlowerEye(g, isSE ? -4 : 4, -31, es * 0.7, color, true);
+      this.drawDaisyEye(g, isSE ? 2.8 : -2.8, -63, 2.5 * es, color, petals, 0.85);
+      this.drawDaisyEye(g, isSE ? -1.2 : 1.2, -63.5, 1.8 * es, color, petals, 0.6);
     }
   }
 
-  private drawFlowerEye(
-    g: Graphics, cx: number, cy: number, scale: number,
-    petalColor: number, isFarEye = false,
+  /**
+   * One daisy eye: `petals` elongated petals arranged at radius r×0.45
+   * (length r×0.55, width r×0.3), dark center r×0.55 + white highlight.
+   */
+  private drawDaisyEye(
+    g: Graphics, cx: number, cy: number, r: number,
+    petalColor: number, petalCount: number, alpha: number,
   ): void {
-    const petalR = 4 * scale;
-    const alpha = isFarEye ? 0.5 : 0.85;
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
-      g.ellipse(cx + Math.cos(a) * petalR * 0.6, cy + Math.sin(a) * petalR * 0.6, petalR * 0.5, petalR * 0.7);
+    for (let i = 0; i < petalCount; i++) {
+      const a = (i / petalCount) * Math.PI * 2 - Math.PI / 2;
+      this.pathRotatedEllipse(
+        g,
+        cx + Math.cos(a) * r * 0.45,
+        cy + Math.sin(a) * r * 0.45,
+        r * 0.55, r * 0.3, a,
+      );
       g.fill({ color: petalColor, alpha });
     }
-    g.circle(cx, cy, 2 * scale);
+    g.circle(cx, cy, r * 0.55);
     g.fill({ color: 0x333333, alpha });
-    g.circle(cx - scale, cy - scale, 0.8 * scale);
+    g.circle(cx - r * 0.22, cy - r * 0.22, r * 0.2);
     g.fill({ color: 0xFFFFFF, alpha: Math.min(1, alpha + 0.15) });
+  }
+
+  /**
+   * Append a rotated ellipse to the current path as 4 quadratic segments
+   * (corner-control approximation — ~6% plump on the diagonal, reads as
+   * round and keeps the hand-drawn single-weight feel). Used for daisy
+   * petals and the angled feet; `rot` orients the major axis (length a).
+   */
+  private pathRotatedEllipse(
+    g: Graphics, cx: number, cy: number, a: number, b: number, rot: number,
+  ): void {
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    const ux = cos, uy = sin;    // major-axis unit vector
+    const vx = -sin, vy = cos;   // minor-axis unit vector
+    const p0x = cx + a * ux, p0y = cy + a * uy;
+    const p1x = cx + b * vx, p1y = cy + b * vy;
+    const p2x = cx - a * ux, p2y = cy - a * uy;
+    const p3x = cx - b * vx, p3y = cy - b * vy;
+    g.moveTo(p0x, p0y);
+    g.quadraticCurveTo(cx + a * ux + b * vx, cy + a * uy + b * vy, p1x, p1y);
+    g.quadraticCurveTo(cx - a * ux + b * vx, cy - a * uy + b * vy, p2x, p2y);
+    g.quadraticCurveTo(cx - a * ux - b * vx, cy - a * uy - b * vy, p3x, p3y);
+    g.quadraticCurveTo(cx + a * ux - b * vx, cy + a * uy - b * vy, p0x, p0y);
   }
 
   private drawMouth(dir: string): void {
@@ -660,25 +707,24 @@ export class Character extends Container {
     // Back-facing — no mouth
     if (this.currentDir.flip) return;
 
-    const s = this.dna.bodyScale;
-    if (dir === 'S') {
-      this.drawSmile(g, 0, -20, 6 * s, false);
-    } else if (dir === 'E' || dir === 'W') {
-      this.drawSmile(g, dir === 'E' ? 2 : -2, -20, 4 * s, true);
-    } else {
-      this.drawSmile(g, dir === 'SE' ? 2 : -2, -20, 5 * s, false);
-    }
-  }
+    // Wide crescent grin: a single quadratic arc on the −59 lip line with
+    // the control dipped to −56.8 (curve sags to ≈ −57.9 — the open smile
+    // from the real art). Half-width and facing offset vary per direction.
+    let cx = 0, half = 4;
+    if (dir === 'E') { cx = 1.5; half = 2.2; }
+    else if (dir === 'W') { cx = -1.5; half = 2.2; }
+    else if (dir === 'SE') { cx = 0.8; half = 3; }
+    else if (dir === 'SW') { cx = -0.8; half = 3; }
 
-  private drawSmile(g: Graphics, cx: number, cy: number, width: number, isProfile: boolean): void {
-    const startAngle = isProfile ? -Math.PI * 0.8 : 0.1;
-    const endAngle = isProfile ? -Math.PI * 0.2 : Math.PI - 0.1;
-    g.arc(cx, cy, width, startAngle, endAngle);
-    g.stroke({ width: 1.5, color: 0x888888 });
-    if (!isProfile) {
-      g.circle(cx - width + 1, cy - 1, 1);
+    g.moveTo(cx - half, -59);
+    g.quadraticCurveTo(cx, -56.8, cx + half, -59);
+    g.stroke({ width: 1.4, color: 0x777777 });
+
+    if (dir === 'S') {
+      // Tiny cheek dots (front S only) — kept from the old smile.
+      g.circle(-3.4, -60.5, 1);
       g.fill({ color: 0xFFCCCC, alpha: 0.5 });
-      g.circle(cx + width - 1, cy - 1, 1);
+      g.circle(3.4, -60.5, 1);
       g.fill({ color: 0xFFCCCC, alpha: 0.5 });
     }
   }
@@ -688,43 +734,56 @@ export class Character extends Container {
     g.clear();
     const ts = this.dna.torsoScale * this.dna.bodyScale;
     const m = this.computeMetrics(dir);
-    const { torsoTop, hipY, torsoHalfW, shoulderX, shoulderY } = m;
-    const torsoH = hipY - torsoTop; // same height value the metrics expose
+    const { torsoTop, hipY, torsoHalfW: wS, shoulderX, shoulderY } = m;
+    // Taper: shoulders 9 → waist 6 → hip 8 (ratios hold for every direction).
+    const wW = wS * (6 / 9);
+    const wH = wS * (8 / 9);
+    const yMid = (torsoTop + hipY) / 2; // waist line (−43 at ts = 1)
 
+    // Per-direction turn offset: shoulders lean toward the facing side while
+    // the hips stay planted (softer values of the old rect-shift intent).
+    let off = 0;
     if (this.currentDir.flip) {
-      if (dir === 'S') {
-        // Pure back (N) — centered, narrow
-        g.roundRect(-torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 4);
-      } else {
-        // 3/4 back (NE/NW) — shift shoulders toward the turned side
-        const toward = dir === 'SE' ? 1 : -1;
-        g.roundRect(toward * 2 - torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 4);
-      }
-    } else if (dir === 'S') {
-      g.roundRect(-torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 5);
-    } else if (dir === 'E' || dir === 'W') {
-      g.roundRect(-torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 3);
-    } else {
-      g.roundRect(-torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 4);
-    }
+      off = dir === 'S' ? 0 : (dir === 'SE' ? 1.2 : -1.2);
+    } else if (dir === 'E') off = 1;
+    else if (dir === 'W') off = -1;
+    else if (dir === 'SE') off = 0.8;
+    else if (dir === 'SW') off = -0.8;
+
+    // Side-curve control that makes the quadratic pass through the waist
+    // point at its midpoint: C = 2·waist − 0.5·(shoulder + hip).
+    const ctrlX = 2 * wW - 0.5 * (wS + wH);
+
+    g.moveTo(-wS + off, torsoTop);
+    // Top edge bows gently UP at the neck so the head bottom (−56.7 at
+    // hs·bs = 1) always overlaps the torso — no neck gap at any DNA scale.
+    g.quadraticCurveTo(off, torsoTop - 2, wS + off, torsoTop);
+    // Right side: shoulder → waist → hip.
+    g.quadraticCurveTo(ctrlX + 0.5 * off, yMid, wH, hipY);
+    // Bottom edge: slight belly bow.
+    g.quadraticCurveTo(0, hipY + 0.8, -wH, hipY);
+    // Left side mirror.
+    g.quadraticCurveTo(-ctrlX + 0.5 * off, yMid, -wS + off, torsoTop);
     g.fill(0xFFFFFF);
-    g.stroke({ width: 1, color: this.currentDir.flip ? 0xDDDDDD : 0xCCCCCC });
+    g.stroke({ width: 1, color: this.currentDir.flip ? 0xDDDDDD : 0xBBBBBB });
 
     // Shoulder cap discs (white, no stroke) — when an arm rotates away the
     // seam at the shoulder is still covered by the disc in the torso layer.
-    g.circle(-shoulderX, shoulderY, 4 * ts);
+    // Anchors are the arm joint pivots, so they must NOT take the `off` lean.
+    g.circle(-shoulderX, shoulderY, 3 * ts);
     g.fill(0xFFFFFF);
-    g.circle(shoulderX, shoulderY, 4 * ts);
+    g.circle(shoulderX, shoulderY, 3 * ts);
     g.fill(0xFFFFFF);
   }
 
   private drawGlow(): void {
     const g = this.parts.glow;
     g.clear();
-    const r = 28 * this.dna.bodyScale;
-    g.circle(0, -22, r);
+    // Repositioned onto the torso center (spec: r 26 at (0, −40)).
+    const r = 26 * this.dna.bodyScale;
+    g.circle(0, -40, r);
     g.fill({ color: this.dna.glowColor, alpha: 0.25 });
-    g.circle(0, -22, r * 0.6);
+    g.circle(0, -40, r * 0.6);
     g.fill({ color: this.dna.glowColor, alpha: 0.2 });
   }
 
@@ -745,45 +804,88 @@ export class Character extends Container {
     this.armL.position.set(-m.shoulderX, m.shoulderY);
     this.armR.position.set(m.shoulderX, m.shoulderY);
 
-    this.drawLegLocal(this.legLG);
-    this.drawLegLocal(this.legRG);
-    this.drawArmLocal(this.armLG);
-    this.drawArmLocal(this.armRG);
+    this.drawLegLocal(this.legLG, -1);
+    this.drawLegLocal(this.legRG, 1);
+    this.drawArmLocal(this.armLG, -1);
+    this.drawArmLocal(this.armRG, 1);
   }
 
-  /** Leg + foot, drawn in joint-local space with the hip joint at (0,0). */
-  private drawLegLocal(g: Graphics): void {
+  /**
+   * Leg + foot, drawn in joint-local space with the hip joint at (0,0).
+   * `side` (−1 left / +1 right) flips the slight outward bow of the shaft
+   * and the turned-out foot angle so the pair mirrors anatomically.
+   */
+  private drawLegLocal(g: Graphics, side: number): void {
     const ls = this.dna.legScale * this.dna.bodyScale;
-    const legW = 4 * ls, legH = 14 * ls;
+    const L = 30 * ls;              // LEG_LEN (hipY −30 → feet 0 at ls = 1)
+    const w = 1.5 * ls;             // shaft half-width (3·ls full — thin noodle)
+    const bow = side * 0.3 * ls;    // slight outward bow
+    const knee = 0.25 * ls;         // tiny width bulge at 55% length
+    const strokeColor = this.currentDir.flip ? 0xDDDDDD : 0xBBBBBB;
+
     g.clear();
-    g.roundRect(-legW / 2, 0, legW, legH, 2);
+    // Noodle shaft: two bezier side curves + soft top/ankle closures.
+    g.moveTo(-w, 0);
+    g.bezierCurveTo(-w + bow, 0.35 * L, -(w + knee) + bow, 0.55 * L, -w + bow * 0.5, L);
+    g.quadraticCurveTo(bow * 0.5, L + 0.5 * ls, w + bow * 0.5, L);
+    g.bezierCurveTo((w + knee) + bow, 0.55 * L, w + bow, 0.35 * L, w, 0);
+    g.quadraticCurveTo(bow * 0.25, -0.6 * ls, -w, 0);
     g.fill(0xFFFFFF);
-    g.stroke({ width: 1, color: 0xCCCCCC });
+    g.stroke({ width: 1, color: strokeColor });
+
     // Hip joint disc — full circle centered ON the pivot: same silhouette
     // at every walk rotation (OpenToonz hook technique).
-    g.circle(0, 0, legW * 0.75);
+    g.circle(0, 0, 2.2 * ls);
     g.fill(0xFFFFFF);
-    // Foot at the distal end — lives inside the limb, cannot drift.
-    g.ellipse(0, legH + 1, 5 * ls, 3 * ls);
+
+    // Foot at the distal end — lives inside the limb, cannot drift; angled
+    // slightly outward (0.15 rad) like the reference's turned-out feet.
+    this.pathRotatedEllipse(g, bow * 0.5, L + 1, 4 * ls, 2 * ls, side * 0.15);
     g.fill(0xFFFFFF);
-    g.stroke({ width: 1, color: 0xBBBBBB });
+    g.stroke({ width: 1, color: strokeColor });
   }
 
-  /** Arm + hand, drawn in joint-local space with the shoulder at (0,0). */
-  private drawArmLocal(g: Graphics): void {
+  /**
+   * Arm + hand, drawn in joint-local space with the shoulder at (0,0).
+   * `side` (−1 left / +1 right) mirrors the gentle S-curve so the arms
+   * wave outward symmetrically.
+   */
+  private drawArmLocal(g: Graphics, side: number): void {
     const as_ = this.dna.armScale * this.dna.bodyScale;
-    const armW = 3.5 * as_, armH = 12 * as_;
+    const L = 34 * as_;             // ARM_LEN (shoulder −54 → hand ≈ −20)
+    const w = 1.25 * as_;           // shaft half-width (2.5·as full — thin noodle)
+    const s1 = side * 1.2 * as_;    // S-curve control offset @ 35% length
+    const s2 = -side * 1.2 * as_;   // …opposite direction @ 65% length
+    const strokeColor = this.currentDir.flip ? 0xDDDDDD : 0xBBBBBB;
+
     g.clear();
-    g.roundRect(-armW / 2, 0, armW, armH, 2);
+    // Noodle shaft with a gentle S-curve (bezier controls at 35%/65%).
+    g.moveTo(-w, 0);
+    g.bezierCurveTo(s1 - w, 0.35 * L, s2 - w, 0.65 * L, -w, L);
+    g.quadraticCurveTo(0, L + 0.4 * as_, w, L);
+    g.bezierCurveTo(s2 + w, 0.65 * L, s1 + w, 0.35 * L, w, 0);
+    g.quadraticCurveTo(0, -0.5 * as_, -w, 0);
     g.fill(0xFFFFFF);
-    g.stroke({ width: 1, color: 0xCCCCCC });
-    // Shoulder joint disc centered ON the pivot.
-    g.circle(0, 0, armW * 0.8);
+    g.stroke({ width: 1, color: strokeColor });
+
+    // Shoulder joint disc centered ON the pivot (rotation-invariant seam).
+    g.circle(0, 0, 2 * as_);
     g.fill(0xFFFFFF);
-    // Hand at the distal end.
-    g.circle(0, armH, 3 * as_);
+
+    // 3-lobe mitten hand at the tip — single closed path (one outline):
+    // palm r 2.2·as plus two knuckle bumps below it.
+    const pr = 2.2 * as_, br = 1.2 * as_;
+    const bx = 1.6 * as_, by = L + 1.5 * as_;
+    g.moveTo(0, L - pr);
+    g.quadraticCurveTo(pr, L - pr, pr, L);                            // palm right shoulder
+    g.quadraticCurveTo(bx + br * 0.9, L + 0.2 * as_, bx + br * 0.71, by + br * 0.71); // → right bump
+    g.quadraticCurveTo(bx, by + br * 1.05, bx - br * 0.8, by + br * 0.55);            // right bump bottom
+    g.quadraticCurveTo(0, by + br * 0.15, -(bx - br * 0.8), by + br * 0.55);          // valley
+    g.quadraticCurveTo(-bx, by + br * 1.05, -(bx + br * 0.71), by + br * 0.71);       // left bump bottom
+    g.quadraticCurveTo(-(bx + br * 0.9), L + 0.2 * as_, -pr, L);                      // → palm left
+    g.quadraticCurveTo(-pr, L - pr, 0, L - pr);                       // palm top
     g.fill(0xFFFFFF);
-    g.stroke({ width: 1, color: 0xBBBBBB });
+    g.stroke({ width: 1, color: strokeColor });
   }
 
   private redrawIdlePose(): void {
