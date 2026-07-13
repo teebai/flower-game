@@ -1,22 +1,17 @@
 /**
- * ArtworkPopup.ts — Gallery artwork detail modal (HTML overlay).
+ * ArtworkPopup.ts — Gallery artwork detail modal, styled as a PoE2 item card.
  *
- * A warm, low-saturation card shown when a player clicks an orbiting
- * artwork. Displays the REAL artwork image (loaded from `artwork.imageUrl`,
- * served from `public/artworks/`), the title, year, medium, dimensions, price,
- * and an "Enquire to Buy" button that opens the visitor's mail client with a
- * pre-filled enquiry. If the image file is missing it shows an elegant
- * empty-state placeholder — never a broken image, never the procedural thumb.
- *
- * When a collection is provided via setCollection(), circular ‹ › buttons let
- * the visitor step to the previous/next artwork (Arrow keys work too, and
- * Escape closes the popup).
+ * The detail view is presented like an item tooltip from Path of Exile 2:
+ * a dark engraved card with a gold small-caps header ribbon, the medium as
+ * the "base type", white base stats (Item Level = year, dimensions), blue
+ * "mods" (each artwork's flavour stats), ornamented dividers, and an italic
+ * flavour-text block carrying the STORY behind the piece. The real artwork
+ * image (loaded from `artwork.imageUrl`, served from `public/artworks/`) sits
+ * at the top. The card body scrolls when the story is long; the Enquire
+ * button and ‹ › navigation stay pinned.
  *
  * The popup is a singleton — reuse it via show()/hide(). It appends itself to
  * the game container so it layers above the PixiJS canvas.
- *
- * Styling follows the project's default standards: warm off-white card, soft
- * shadow, clear hierarchy, no saturated gradients.
  */
 
 import type { Artwork } from '../data/artworks';
@@ -24,6 +19,23 @@ import { formatPrice } from '../data/artworks';
 
 /** Where purchase enquiries go. Change to the artist's real address. */
 const ENQUIRY_EMAIL = 'hello@teebai.flowers';
+
+/** Engraved serif stack approximating PoE's "Fontin" item font. */
+const POE_FONT =
+  "'Palatino Linotype', Palatino, 'Book Antiqua', 'Hoefler Text', Georgia, serif";
+
+/** PoE-style colour tokens (low-saturation dark card + gold/blue accents). */
+const POE = {
+  nameUnique: '#d9a25c', // burnt-gold unique name
+  typeLine: '#a99a86', // muted base-type line
+  statWhite: '#e8e2d4', // base stats
+  modBlue: '#8d93e6', // magic-mod blue
+  valueGold: '#e0b765', // price line
+  flavor: '#b29a77', // italic flavour/story text
+  divider: 'rgba(120,100,70,0.55)',
+  diamond: 'rgba(224,183,101,0.6)',
+  panelBg: '#17120d', // mid card tone (used to mask divider under the diamond)
+} as const;
 
 export class ArtworkPopup {
   /** Backdrop element (semi-transparent, click-to-close). */
@@ -55,29 +67,31 @@ export class ArtworkPopup {
       display: 'none',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'rgba(30, 26, 22, 0.55)',
-      backdropFilter: 'blur(2px)',
-      WebkitBackdropFilter: 'blur(2px)',
+      background: 'rgba(20, 16, 12, 0.62)',
+      backdropFilter: 'blur(3px)',
+      WebkitBackdropFilter: 'blur(3px)',
       padding: '20px',
       boxSizing: 'border-box',
       animation: 'teebaiFade 0.18s ease-out',
     });
 
-    // ── Card ──
+    // ── Card (dark PoE item frame; flex column so the body can scroll) ──
     this.card = document.createElement('div');
     Object.assign(this.card.style, {
       position: 'relative',
-      width: 'min(420px, 100%)',
+      width: 'min(460px, 100%)',
       maxHeight: '90vh',
-      overflowY: 'auto',
-      background: '#FFFDF8',
-      borderRadius: '16px',
-      boxShadow: '0 18px 50px rgba(40,30,20,0.35)',
-      padding: '22px',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden', // the inner body scrolls, the card frame does not
+      background: 'linear-gradient(180deg, #1d1711 0%, #100c08 100%)',
+      border: '1px solid #4a4038',
+      borderRadius: '14px',
+      boxShadow:
+        '0 22px 60px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(224,183,101,0.08)',
+      padding: '0',
       boxSizing: 'border-box',
-      fontFamily:
-        "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-      color: '#3A322B',
+      color: POE.statWhite,
     });
 
     // Stop backdrop click from closing when clicking inside the card.
@@ -108,6 +122,16 @@ export class ArtworkPopup {
       @keyframes teebaiRise {
         from { opacity: 0; transform: translateY(10px) scale(0.98); }
         to   { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      /* Slim, themed scrollbar for the item body */
+      .teebai-itembody::-webkit-scrollbar { width: 8px; }
+      .teebai-itembody::-webkit-scrollbar-track { background: transparent; }
+      .teebai-itembody::-webkit-scrollbar-thumb {
+        background: rgba(224,183,101,0.28);
+        border-radius: 8px;
+      }
+      .teebai-itembody::-webkit-scrollbar-thumb:hover {
+        background: rgba(224,183,101,0.45);
       }
     `;
     document.head.appendChild(style);
@@ -187,46 +211,57 @@ export class ArtworkPopup {
   private render(art: Artwork): void {
     this.card.innerHTML = '';
 
-    // ── Close button ──
+    // ── Close button (dark-theme) ──
     const close = document.createElement('button');
     close.textContent = '×';
     close.setAttribute('aria-label', 'Close');
     Object.assign(close.style, {
       position: 'absolute',
-      top: '12px',
-      right: '14px',
-      width: '34px',
-      height: '34px',
+      top: '10px',
+      right: '12px',
+      width: '32px',
+      height: '32px',
       border: 'none',
       borderRadius: '50%',
-      background: 'rgba(120,100,80,0.12)',
-      color: '#6B5D50',
-      fontSize: '22px',
+      background: 'rgba(255,245,230,0.10)',
+      color: '#d8cdba',
+      fontSize: '20px',
       lineHeight: '1',
       cursor: 'pointer',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
+      zIndex: '3',
     });
     close.addEventListener('click', () => this.hide());
     close.addEventListener('mouseenter', () => {
-      close.style.background = 'rgba(120,100,80,0.22)';
+      close.style.background = 'rgba(255,245,230,0.22)';
     });
     close.addEventListener('mouseleave', () => {
-      close.style.background = 'rgba(120,100,80,0.12)';
+      close.style.background = 'rgba(255,245,230,0.10)';
     });
     this.card.appendChild(close);
+
+    // ── Scrollable item body ──
+    const body = document.createElement('div');
+    body.className = 'teebai-itembody';
+    Object.assign(body.style, {
+      flex: '1 1 auto',
+      minHeight: '0',
+      overflowY: 'auto',
+      padding: '18px 22px 6px',
+    });
 
     // ── Artwork image (REAL artwork, loaded from imageUrl) ──
     const imgWrap = document.createElement('div');
     Object.assign(imgWrap.style, {
       width: '100%',
-      borderRadius: '10px',
+      borderRadius: '8px',
       overflow: 'hidden',
-      boxShadow: '0 6px 18px rgba(60,45,30,0.18)',
+      boxShadow: 'inset 0 0 0 1px #3a3028, 0 8px 22px rgba(0,0,0,0.5)',
       marginBottom: '16px',
-      background: '#EFE7DA',
-      minHeight: '240px',
+      background: '#241d16',
+      minHeight: '220px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -237,18 +272,18 @@ export class ArtworkPopup {
       const ph = document.createElement('div');
       Object.assign(ph.style, {
         textAlign: 'center',
-        color: '#B7A892',
+        color: '#a99c80',
         padding: '24px',
       });
       ph.innerHTML =
         '<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style="margin:0 auto 10px;display:block;">' +
-        '<g fill="#C9B79A">' +
+        '<g fill="#6f5f48">' +
         '<circle cx="20" cy="9" r="5"/><circle cx="20" cy="31" r="5"/>' +
         '<circle cx="9" cy="20" r="5"/><circle cx="31" cy="20" r="5"/>' +
         '<circle cx="11.5" cy="11.5" r="5"/><circle cx="28.5" cy="28.5" r="5"/>' +
         '<circle cx="28.5" cy="11.5" r="5"/><circle cx="11.5" cy="28.5" r="5"/>' +
-        '</g><circle cx="20" cy="20" r="6" fill="#9C6B3F"/></svg>' +
-        '<div style="font-size:14px;font-weight:600;">Artwork image</div>';
+        '</g><circle cx="20" cy="20" r="6" fill="#c9a06a"/></svg>' +
+        '<div style="font-size:13px;font-weight:600;letter-spacing:0.4px;">Artwork image</div>';
       imgWrap.appendChild(ph);
     };
 
@@ -260,7 +295,9 @@ export class ArtworkPopup {
         width: '100%',
         height: 'auto',
       });
-      img.addEventListener('load', () => { imgWrap.style.minHeight = '0'; });
+      img.addEventListener('load', () => {
+        imgWrap.style.minHeight = '0';
+      });
       img.addEventListener('error', () => {
         // eslint-disable-next-line no-console
         console.warn(`[gallery] Missing artwork image: ${art.imageUrl}`);
@@ -271,88 +308,196 @@ export class ArtworkPopup {
     } else {
       showPlaceholder();
     }
-    this.card.appendChild(imgWrap);
+    body.appendChild(imgWrap);
 
-    // ── Title ──
-    const title = document.createElement('h2');
-    title.textContent = art.title;
-    Object.assign(title.style, {
-      margin: '0 0 6px',
-      fontSize: '22px',
-      fontWeight: '700',
-      letterSpacing: '0.2px',
-      color: '#2E2721',
+    // ── Header ribbon: name (gold, small-caps) + medium (base type) ──
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      textAlign: 'center',
+      padding: '4px 8px 8px',
+      background:
+        'radial-gradient(ellipse at center, rgba(224,183,101,0.10) 0%, transparent 70%)',
     });
-    this.card.appendChild(title);
-
-    // ── Meta line: year · medium · dimensions ──
-    const meta = document.createElement('div');
-    meta.textContent = `${art.year}  ·  ${art.medium}  ·  ${art.dimensions}`;
-    Object.assign(meta.style, {
-      fontSize: '13.5px',
-      color: '#8A7B6C',
-      marginBottom: '16px',
-      lineHeight: '1.5',
+    const name = document.createElement('div');
+    name.textContent = art.title;
+    Object.assign(name.style, {
+      fontFamily: POE_FONT,
+      fontVariant: 'small-caps',
+      fontSize: '24px',
+      fontWeight: '600',
+      letterSpacing: '1.5px',
+      color: POE.nameUnique,
+      lineHeight: '1.2',
+      textShadow: '0 1px 2px rgba(0,0,0,0.6)',
     });
-    this.card.appendChild(meta);
-
-    // ── Price ──
-    const price = document.createElement('div');
-    price.textContent = formatPrice(art);
-    Object.assign(price.style, {
-      fontSize: '20px',
-      fontWeight: '700',
-      color: '#9C6B3F',
-      marginBottom: '18px',
+    header.appendChild(name);
+    const typeLine = document.createElement('div');
+    typeLine.textContent = art.medium;
+    Object.assign(typeLine.style, {
+      fontFamily: POE_FONT,
+      fontVariant: 'small-caps',
+      fontSize: '13px',
+      letterSpacing: '1px',
+      color: POE.typeLine,
+      marginTop: '3px',
     });
-    this.card.appendChild(price);
+    header.appendChild(typeLine);
+    body.appendChild(header);
 
-    // ── Enquire to Buy button ──
+    // ── Base stats (white): Item Level (year) + dimensions ──
+    body.appendChild(this.divider());
+    const base = document.createElement('div');
+    Object.assign(base.style, { padding: '4px 0' });
+    base.appendChild(this.statLine(`Item Level: ${art.year}`, POE.statWhite));
+    base.appendChild(this.statLine(art.dimensions, POE.statWhite));
+    body.appendChild(base);
+
+    // ── Mods (blue) + value (gold) ──
+    body.appendChild(this.divider());
+    const mods = document.createElement('div');
+    Object.assign(mods.style, { padding: '4px 0' });
+    (art.flavorMods ?? []).forEach((m) => {
+      mods.appendChild(this.statLine(m, POE.modBlue));
+    });
+    mods.appendChild(
+      this.statLine(`Value: ${formatPrice(art)}`, POE.valueGold, {
+        fontWeight: '600',
+        marginTop: '4px',
+      }),
+    );
+    body.appendChild(mods);
+
+    // ── Flavour story (italic) ──
+    body.appendChild(this.divider());
+    const story = document.createElement('div');
+    story.textContent = art.story ?? '';
+    Object.assign(story.style, {
+      fontFamily: POE_FONT,
+      fontStyle: 'italic',
+      fontSize: '14.5px',
+      lineHeight: '1.6',
+      color: POE.flavor,
+      textAlign: 'center',
+      padding: '6px 6px 10px',
+    });
+    body.appendChild(story);
+
+    this.card.appendChild(body);
+
+    // ── Fixed footer: Enquire to Buy + note ──
+    const footer = document.createElement('div');
+    Object.assign(footer.style, {
+      flex: '0 0 auto',
+      padding: '12px 22px 18px',
+      borderTop: '1px solid rgba(224,183,101,0.12)',
+    });
+
     const buy = document.createElement('button');
     buy.textContent = 'Enquire to Buy';
     Object.assign(buy.style, {
       width: '100%',
-      padding: '14px 16px',
-      border: 'none',
-      borderRadius: '10px',
-      background: '#C98A5E',
+      padding: '13px 16px',
+      border: '1px solid #C98A5E',
+      borderRadius: '9px',
+      background: 'linear-gradient(180deg, #C98A5E 0%, #b87a4e 100%)',
       color: '#FFFFFF',
       fontSize: '15.5px',
       fontWeight: '600',
-      letterSpacing: '0.3px',
+      letterSpacing: '0.4px',
       cursor: 'pointer',
-      transition: 'background 0.15s ease',
+      transition: 'filter 0.15s ease',
       boxSizing: 'border-box',
     });
-    buy.addEventListener('mouseenter', () => { buy.style.background = '#B87A4E'; });
-    buy.addEventListener('mouseleave', () => { buy.style.background = '#C98A5E'; });
+    buy.addEventListener('mouseenter', () => {
+      buy.style.filter = 'brightness(1.08)';
+    });
+    buy.addEventListener('mouseleave', () => {
+      buy.style.filter = 'none';
+    });
     buy.addEventListener('click', () => this.openEnquiry(art));
-    this.card.appendChild(buy);
+    footer.appendChild(buy);
 
-    // ── Subtle note ──
     const note = document.createElement('div');
     note.textContent = 'You’ll be taken to your email app to send an enquiry.';
     Object.assign(note.style, {
-      fontSize: '12px',
-      color: '#B0A392',
+      fontSize: '11.5px',
+      color: '#7d6f5c',
       textAlign: 'center',
-      marginTop: '10px',
+      marginTop: '9px',
     });
-    this.card.appendChild(note);
+    footer.appendChild(note);
+
+    this.card.appendChild(footer);
 
     // Re-trigger the rise animation.
     this.card.style.animation = 'none';
-    // Force reflow so the animation restarts.
-    void this.card.offsetWidth;
+    void this.card.offsetWidth; // force reflow so the animation restarts
     this.card.style.animation = 'teebaiRise 0.2s ease-out';
 
     // Prev/next artwork navigation (only when a collection is set).
     this.appendNavButtons();
   }
 
+  // ── Small builders ──────────────────────────────────────────
+
+  /** A centred ornament divider: a fading line with a tiny gold diamond. */
+  private divider(): HTMLElement {
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
+      position: 'relative',
+      height: '16px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      margin: '2px 0',
+    });
+    const line = document.createElement('div');
+    Object.assign(line.style, {
+      position: 'absolute',
+      left: '0',
+      right: '0',
+      top: '50%',
+      height: '1px',
+      background: `linear-gradient(90deg, transparent, ${POE.divider}, transparent)`,
+      transform: 'translateY(-50%)',
+    });
+    const diamond = document.createElement('div');
+    diamond.textContent = '◆';
+    Object.assign(diamond.style, {
+      position: 'relative',
+      color: POE.diamond,
+      fontSize: '8px',
+      padding: '0 7px',
+      background: POE.panelBg, // masks the line behind the diamond
+    });
+    wrap.appendChild(line);
+    wrap.appendChild(diamond);
+    return wrap;
+  }
+
+  /** A single centred serif stat line. */
+  private statLine(
+    text: string,
+    color: string,
+    extra?: Record<string, string>,
+  ): HTMLElement {
+    const el = document.createElement('div');
+    el.textContent = text;
+    Object.assign(el.style, {
+      textAlign: 'center',
+      fontFamily: POE_FONT,
+      color,
+      fontSize: '15px',
+      lineHeight: '1.55',
+      letterSpacing: '0.3px',
+      ...(extra ?? {}),
+    });
+    return el;
+  }
+
   // ── Nav buttons ─────────────────────────────────────────────
 
-  /** Circular ‹ › buttons overlapping the card edges (carousel style). */
+  /** Circular ‹ › buttons pinned to the card edges (vertically centred). */
   private appendNavButtons(): void {
     if (this.collection.length < 2) return;
 
@@ -362,14 +507,15 @@ export class ArtworkPopup {
       b.setAttribute('aria-label', dir < 0 ? 'Previous artwork' : 'Next artwork');
       Object.assign(b.style, {
         position: 'absolute',
-        top: '150px', // roughly centred on the artwork image
-        ...(dir < 0 ? { left: '-18px' } : { right: '-18px' }),
+        top: '50%',
+        transform: 'translateY(-50%)',
+        ...(dir < 0 ? { left: '-19px' } : { right: '-19px' }),
         width: '42px',
         height: '42px',
-        border: 'none',
+        border: '1px solid #4a4038',
         borderRadius: '50%',
-        background: '#FFFDF8',
-        color: '#6B5D50',
+        background: '#1d1711',
+        color: POE.valueGold,
         fontSize: '26px',
         lineHeight: '1',
         paddingBottom: '3px',
@@ -377,11 +523,15 @@ export class ArtworkPopup {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        boxShadow: '0 6px 18px rgba(40,30,20,0.32)',
-        zIndex: '2',
+        boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
+        zIndex: '4',
       });
-      b.addEventListener('mouseenter', () => { b.style.background = '#F5EDE1'; });
-      b.addEventListener('mouseleave', () => { b.style.background = '#FFFDF8'; });
+      b.addEventListener('mouseenter', () => {
+        b.style.background = '#2a221a';
+      });
+      b.addEventListener('mouseleave', () => {
+        b.style.background = '#1d1711';
+      });
       b.addEventListener('click', (e) => {
         e.stopPropagation(); // never reach the backdrop's click-to-close
         this.navigate(dir);
@@ -399,8 +549,8 @@ export class ArtworkPopup {
     const subject = encodeURIComponent(`Enquiry: ${art.title} (${art.year})`);
     const body = encodeURIComponent(
       `Hi,\n\nI'm interested in purchasing "${art.title}" ` +
-      `(${art.year}, ${art.medium}, ${art.dimensions}).\n\n` +
-      `Could you share availability and payment details?\n\nThank you!`,
+        `(${art.year}, ${art.medium}, ${art.dimensions}).\n\n` +
+        `Could you share availability and payment details?\n\nThank you!`,
     );
     window.location.href = `mailto:${ENQUIRY_EMAIL}?subject=${subject}&body=${body}`;
   }
