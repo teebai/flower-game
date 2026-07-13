@@ -10,12 +10,19 @@
  * at the top. The card body scrolls when the story is long; the Enquire
  * button and ‹ › navigation stay pinned.
  *
+ * HD ZOOM: clicking the artwork image opens a fullscreen PhotoSwipe lightbox
+ * (pinch / wheel / double-tap zoom, drag-to-pan, swipe / arrow navigation).
+ * The heavy PhotoSwipe core is dynamically imported on first zoom, so it adds
+ * nothing to the main game bundle.
+ *
  * The popup is a singleton — reuse it via show()/hide(). It appends itself to
  * the game container so it layers above the PixiJS canvas.
  */
 
 import type { Artwork } from '../data/artworks';
 import { formatPrice } from '../data/artworks';
+import PhotoSwipeLightbox from 'photoswipe/lightbox';
+import 'photoswipe/style.css';
 
 /** Where purchase enquiries go. Change to the artist's real address. */
 const ENQUIRY_EMAIL = 'hello@teebai.flowers';
@@ -56,6 +63,12 @@ export class ArtworkPopup {
 
   /** Keydown handler ref (Arrow keys / Escape) so we can detach it. */
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+
+  /** Lazily-created PhotoSwipe lightbox (HD zoom). */
+  private lightbox: PhotoSwipeLightbox | null = null;
+
+  /** True while the HD zoom lightbox is open (suppresses popup hotkeys). */
+  private zoomOpen = false;
 
   constructor(parent: HTMLElement) {
     // ── Backdrop ──
@@ -186,6 +199,7 @@ export class ArtworkPopup {
     if (this.keyHandler) return;
     this.keyHandler = (e: KeyboardEvent) => {
       if (!this.visible) return;
+      if (this.zoomOpen) return; // let PhotoSwipe own the keyboard while zooming
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         this.navigate(-1);
@@ -204,6 +218,54 @@ export class ArtworkPopup {
     if (!this.keyHandler) return;
     window.removeEventListener('keydown', this.keyHandler);
     this.keyHandler = null;
+  }
+
+  // ── HD zoom (PhotoSwipe) ────────────────────────────────────
+
+  /**
+   * Build (once) the fullscreen zoom lightbox. The heavy PhotoSwipe core is
+   * pulled in via dynamic import() on first use, so it never touches the main
+   * game bundle. The whole collection becomes a swipeable/arrow-navigable
+   * gallery; HD files (art.hdUrl) are fetched only when a slide opens.
+   */
+  private ensureLightbox(): PhotoSwipeLightbox {
+    if (this.lightbox) return this.lightbox;
+
+    const dataSource = this.collection.map((art) => ({
+      src: art.hdUrl || art.imageUrl || '',
+      width: art.hdWidth ?? art.width,
+      height: art.hdHeight ?? art.height,
+      msrc: art.imageUrl, // crisp 900px thumb shown while the HD file streams in
+      alt: art.title,
+    }));
+
+    const lb = new PhotoSwipeLightbox({
+      dataSource,
+      pswpModule: () => import('photoswipe'),
+      // ── Tuned for inspecting fine artwork detail ──
+      bgOpacity: 0.94,
+      showHideAnimationType: 'zoom',
+      wheelToZoom: true, // desktop: plain wheel zooms (no Ctrl needed)
+      imageClickAction: 'zoom', // click the image to zoom in further
+      tapAction: 'toggle-controls', // mobile: tap toggles the UI
+      padding: { top: 20, bottom: 20, left: 20, right: 20 },
+    });
+
+    // Track open/close so the popup's own hotkeys don't fight PhotoSwipe's.
+    lb.on('close', () => {
+      this.zoomOpen = false;
+    });
+
+    lb.init();
+    this.lightbox = lb;
+    return lb;
+  }
+
+  /** Open the fullscreen HD zoom, focused on the current artwork. */
+  private openZoom(): void {
+    const idx = this.currentIndex >= 0 ? this.currentIndex : 0;
+    this.zoomOpen = true;
+    this.ensureLightbox().loadAndOpen(idx);
   }
 
   // ── Rendering ───────────────────────────────────────────────
@@ -255,6 +317,7 @@ export class ArtworkPopup {
     // ── Artwork image (REAL artwork, loaded from imageUrl) ──
     const imgWrap = document.createElement('div');
     Object.assign(imgWrap.style, {
+      position: 'relative',
       width: '100%',
       borderRadius: '8px',
       overflow: 'hidden',
@@ -305,6 +368,11 @@ export class ArtworkPopup {
       });
       img.src = art.imageUrl;
       imgWrap.appendChild(img);
+
+      // Make the artwork zoomable — click opens the fullscreen HD lightbox.
+      imgWrap.style.cursor = 'zoom-in';
+      imgWrap.appendChild(this.zoomBadge());
+      imgWrap.addEventListener('click', () => this.openZoom());
     } else {
       showPlaceholder();
     }
@@ -495,6 +563,38 @@ export class ArtworkPopup {
     return el;
   }
 
+  /** A small "Zoom" magnifier badge overlaid on the artwork image. */
+  private zoomBadge(): HTMLElement {
+    const badge = document.createElement('div');
+    Object.assign(badge.style, {
+      position: 'absolute',
+      right: '10px',
+      bottom: '10px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '5px',
+      padding: '6px 10px',
+      borderRadius: '20px',
+      background: 'rgba(16,12,8,0.72)',
+      color: '#e8e2d4',
+      fontSize: '12px',
+      fontFamily: POE_FONT,
+      letterSpacing: '0.4px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.45)',
+      backdropFilter: 'blur(2px)',
+      WebkitBackdropFilter: 'blur(2px)',
+      pointerEvents: 'none', // the image wrapper handles the click
+    });
+    badge.innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+      '<circle cx="11" cy="11" r="7" stroke="#e0b765" stroke-width="2"/>' +
+      '<line x1="16.5" y1="16.5" x2="21" y2="21" stroke="#e0b765" stroke-width="2" stroke-linecap="round"/>' +
+      '<line x1="11" y1="8" x2="11" y2="14" stroke="#e0b765" stroke-width="2" stroke-linecap="round"/>' +
+      '<line x1="8" y1="11" x2="14" y2="11" stroke="#e0b765" stroke-width="2" stroke-linecap="round"/>' +
+      '</svg><span>Zoom</span>';
+    return badge;
+  }
+
   // ── Nav buttons ─────────────────────────────────────────────
 
   /** Circular ‹ › buttons pinned to the card edges (vertically centred). */
@@ -559,6 +659,8 @@ export class ArtworkPopup {
 
   destroy(): void {
     this.detachKeyboard();
+    this.lightbox?.destroy();
+    this.lightbox = null;
     this.backdrop.remove();
   }
 }
