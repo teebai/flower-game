@@ -17,6 +17,12 @@ import { SteamParticleSystem } from './entities/SteamParticle';
 import { generateCharacterDNA, generateGuestId } from './game/CharacterGenerator';
 import { SPAWN_POS, ZONES } from './utils/constants';
 
+// ── DEBUG BUILD MARKER ───────────────────────────────────────
+// Bump this string on every push so you can confirm at a glance
+// (on-screen + console) that the browser is running the NEW code
+// and not a stale Vite bundle.
+const BUILD_ID = 'fix-stuck-2026-07-13a';
+
 interface MmorpgAppProps {
   guestId?: string;
 }
@@ -126,6 +132,25 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
     };
     window.addEventListener('resize', handleResize);
 
+    // ── DEBUG HUD (temporary) ────────────────────────────────
+    // On-screen overlay showing build marker + live character coords.
+    // Confirms the new bundle is loaded and where the character actually is.
+    console.log(`[teebai.world] BUILD ${BUILD_ID} loaded`);
+    const hud = document.createElement('div');
+    hud.style.cssText = [
+      'position:absolute', 'top:8px', 'left:8px', 'z-index:9999',
+      'background:rgba(0,0,0,0.6)', 'color:#7CFC9B',
+      'font:12px/1.5 monospace', 'padding:8px 10px',
+      'border-radius:6px', 'pointer-events:none', 'white-space:pre',
+    ].join(';');
+    hud.textContent = `BUILD ${BUILD_ID}\nloading...`;
+    // Ensure the wrapper is a positioning context for the absolute HUD.
+    if (getComputedStyle(container).position === 'static') {
+      container.style.position = 'relative';
+    }
+    container.appendChild(hud);
+    let hudTimer = 0;
+
     // Current zone display
     let currentZone: ZoneName = 'none';
 
@@ -168,12 +193,24 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       shopPortal.tick(delta);
       steamSystem.tick(deltaMS);
       worldMap.tick(delta);
+
+      // ── DEBUG HUD update (~6x/sec) ──
+      hudTimer += deltaMS;
+      if (hudTimer > 160) {
+        hudTimer = 0;
+        hud.textContent =
+          `BUILD ${BUILD_ID}\n` +
+          `X:${character.x.toFixed(1)}  Y:${character.y.toFixed(1)}  Z:${character.z.toFixed(1)}\n` +
+          `zone:${currentZone}  wind:${windEffect.isActive() ? 'ON' : 'off'}\n` +
+          `cam:${camera.getPosition().x.toFixed(0)},${camera.getPosition().y.toFixed(0)}`;
+      }
     });
 
     // Cleanup function
     return () => {
       app.canvas.removeEventListener('click', handleClick);
       window.removeEventListener('resize', handleResize);
+      hud.remove();
       app.destroy(true, { children: true });
     };
   }, [guestId]);
