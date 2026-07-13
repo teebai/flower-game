@@ -16,12 +16,15 @@ import { PortalFlower } from './entities/PortalFlower';
 import { SteamParticleSystem } from './entities/SteamParticle';
 import { generateCharacterDNA, generateGuestId } from './game/CharacterGenerator';
 import { SPAWN_POS, ZONES } from './utils/constants';
+import { OrbitingArtwork } from './entities/OrbitingArtwork';
+import { GALLERY_ARTWORKS, buildGalleryOrbits, GALLERY_CENTER, type Artwork } from './data/artworks';
+import { ArtworkPopup } from './ui/ArtworkPopup';
 
 // ── DEBUG BUILD MARKER ───────────────────────────────────────
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'fix-stuck-2026-07-13a';
+const BUILD_ID = 'gallery-2026-07-13b';
 
 interface MmorpgAppProps {
   guestId?: string;
@@ -102,9 +105,38 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
     });
 
     // Zone-specific entities
-    // Gallery massive flower
-    const galleryFlower = new MassiveFlower(1500, 300, 150);
-    worldContainer.addChild(galleryFlower);
+    // ── Gallery: flower centerpiece + orbiting artworks ──
+    // Isolated container with depth-sorting so nearer artworks overlap the
+    // flower core and farther ones tuck behind it.
+    const galleryContainer = new Container();
+    galleryContainer.sortableChildren = true;
+    worldContainer.addChild(galleryContainer);
+
+    const galleryFlower = new MassiveFlower(GALLERY_CENTER.x, GALLERY_CENTER.y, 150);
+    galleryFlower.zIndex = GALLERY_CENTER.y; // depth-sort with artworks by y
+    galleryContainer.addChild(galleryFlower);
+
+    // Artwork detail popup (HTML overlay).
+    const artworkPopup = new ArtworkPopup(container);
+    artworkPopup.onClose(() => controller.setEnabled(true));
+
+    // Timestamp of the most recent artwork tap — used to suppress the
+    // click-to-move that would otherwise also fire on the same click.
+    let lastArtworkTap = 0;
+
+    // Build orbiting artworks across 3 elliptical rings.
+    const orbitingArtworks: OrbitingArtwork[] = [];
+    buildGalleryOrbits(GALLERY_ARTWORKS).forEach((art: Artwork) => {
+      const node = new OrbitingArtwork(art);
+      node.onOpen((data) => {
+        controller.setEnabled(false); // freeze player while reading the popup
+        artworkPopup.show(data);
+      });
+      // Any tap on an artwork must not also trigger a ground move.
+      node.on('pointertap', () => { lastArtworkTap = performance.now(); });
+      galleryContainer.addChild(node);
+      orbitingArtworks.push(node);
+    });
 
     // Minigame portal
     const minigamePortal = new PortalFlower(2700, 1500, 'minigame');
@@ -121,6 +153,10 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
     // Click-to-move handler
     const handleClick = (e: MouseEvent) => {
       if (windEffect.isActive()) return;
+      if (artworkPopup.isVisible()) return;
+      // Ignore the click if it just landed on an artwork (prevents the
+      // character from walking when the player taps an orbiting piece).
+      if (performance.now() - lastArtworkTap < 300) return;
       const worldPos = camera.screenToWorld(e.clientX, e.clientY);
       controller.handleClick(worldPos.x, worldPos.y);
     };
@@ -194,6 +230,11 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       steamSystem.tick(deltaMS);
       worldMap.tick(delta);
 
+      // Orbit artworks + depth-sort them against the flower by world Y
+      for (const art of orbitingArtworks) {
+        art.zIndex = art.tick(deltaMS);
+      }
+
       // ── DEBUG HUD update (~6x/sec) ──
       hudTimer += deltaMS;
       if (hudTimer > 160) {
@@ -211,6 +252,7 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       app.canvas.removeEventListener('click', handleClick);
       window.removeEventListener('resize', handleResize);
       hud.remove();
+      artworkPopup.destroy();
       app.destroy(true, { children: true });
     };
   }, [guestId]);
