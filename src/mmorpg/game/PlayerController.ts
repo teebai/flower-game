@@ -111,18 +111,17 @@ export class PlayerController {
     this.keys.add(key);
 
     // Keyboard input cancels click-to-move so the player can override.
-    if (
-      [
-        KEY.W,
-        KEY.A,
-        KEY.S,
-        KEY.D,
-        KEY.ARROW_UP,
-        KEY.ARROW_DOWN,
-        KEY.ARROW_LEFT,
-        KEY.ARROW_RIGHT,
-      ].includes(key)
-    ) {
+    const movementKeys: readonly string[] = [
+      KEY.W,
+      KEY.A,
+      KEY.S,
+      KEY.D,
+      KEY.ARROW_UP,
+      KEY.ARROW_DOWN,
+      KEY.ARROW_LEFT,
+      KEY.ARROW_RIGHT,
+    ];
+    if (movementKeys.includes(key)) {
       this.moveTarget = null;
     }
   };
@@ -213,6 +212,21 @@ export class PlayerController {
   }
 
   // ── Queries ─────────────────────────────────────────────────────────────
+
+  /**
+   * Raw directional input as a normalized vector, works even while disabled.
+   * WindEffect uses this for in-flight steering (keyboard still populates
+   * `keys` via handleKeyDown regardless of `enabled`).
+   */
+  getSteerVector(): { x: number; y: number } {
+    let dx = 0, dy = 0;
+    if (this.keys.has(KEY.W) || this.keys.has(KEY.ARROW_UP)) dy -= 1;
+    if (this.keys.has(KEY.S) || this.keys.has(KEY.ARROW_DOWN)) dy += 1;
+    if (this.keys.has(KEY.A) || this.keys.has(KEY.ARROW_LEFT)) dx -= 1;
+    if (this.keys.has(KEY.D) || this.keys.has(KEY.ARROW_RIGHT)) dx += 1;
+    const len = Math.hypot(dx, dy);
+    return len > 0 ? { x: dx / len, y: dy / len } : { x: 0, y: 0 };
+  }
 
   /** Current character position (synced to world each frame). */
   getPosition(): { x: number; y: number } {

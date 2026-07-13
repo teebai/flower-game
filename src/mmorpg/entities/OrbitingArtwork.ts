@@ -42,7 +42,7 @@ export class OrbitingArtwork extends Container {
   public readonly data: Artwork;
 
   /** Current orbit angle in radians. */
-  private angle: number;
+  private orbitAngle: number;
 
   private picture: Sprite;
   private frame: Graphics;
@@ -66,7 +66,7 @@ export class OrbitingArtwork extends Container {
   constructor(data: Artwork) {
     super();
     this.data = data;
-    this.angle = data.orbitOffset;
+    this.orbitAngle = data.orbitOffset;
     this.bobPhase = data.orbitOffset * 3.1;
     this.sortableChildren = true;
 
@@ -213,7 +213,7 @@ export class OrbitingArtwork extends Container {
     }
 
     // ── Steady orbiting ──
-    this.angle += this.data.orbitSpeed * deltaMS;
+    this.orbitAngle += this.data.orbitSpeed * deltaMS;
     this.bobPhase += 0.0016 * deltaMS;
     this.updateOrbitPosition(1);
     return this.y;
@@ -227,15 +227,15 @@ export class OrbitingArtwork extends Container {
     const r = this.data.orbitRadius * radiusMul;
     const squash = 1 - this.data.orbitTilt;
 
-    const ex = Math.cos(this.angle) * r;
-    const ey = Math.sin(this.angle) * r * squash;
+    const ex = Math.cos(this.orbitAngle) * r;
+    const ey = Math.sin(this.orbitAngle) * r * squash;
     const bob = Math.sin(this.bobPhase) * 3 * radiusMul;
 
     this.x = GALLERY_CENTER.x + ex;
     this.y = GALLERY_CENTER.y + ey + bob;
 
     // Depth: bottom of ellipse (sin>0) is nearer the viewer → bigger.
-    const depth = (Math.sin(this.angle) + 1) / 2; // 0 (far) … 1 (near)
+    const depth = (Math.sin(this.orbitAngle) + 1) / 2; // 0 (far) … 1 (near)
     const scale = lerp(0.7, 1.2, depth) * radiusMul;
     this.scale.set(scale);
 

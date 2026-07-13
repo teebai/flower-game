@@ -57,11 +57,24 @@ export class Character extends Container {
   /** Height above ground in pixels — set by WindEffect each frame */
   public z = 0;
 
+  /**
+   * Flight scale applied to bodyContainer (wind effect drives this).
+   * Lives on the INNER container so the direction-flip sign on the OUTER
+   * container (scale.x can be negative for mirrored facings) is preserved.
+   */
+  private flyScale = 1;
+
+  /** Landing squash timer in ms; -1 = inactive. Started by playLanding(). */
+  private landT = -1;
+
   private baseYOffset = 0;
 
   private readonly WALK_BOB_AMP = 3;
   private readonly WALK_CYCLE_MS = 600;
   private readonly GLOW_PULSE_MS = 2000;
+  private readonly LAND_MS = 550;
+  /** Max squash/stretch amount on landing (0.22 = ±22%). */
+  private readonly LAND_SQUASH = 0.22;
 
   constructor(dna: CharacterDNA) {
     super();
@@ -163,6 +176,25 @@ export class Character extends Container {
     this.parts.glow.alpha =
       this.dna.glowIntensity * (0.6 + 0.4 * Math.sin(glowT * Math.PI * 2));
 
+    // ── Landing squash: quick squash-flat, then damped overshoot back ──
+    let squashX = 1, squashY = 1;
+    if (this.landT >= 0) {
+      const t = Math.min(1, this.landT / this.LAND_MS);
+      if (t < 0.22) {
+        const u = t / 0.22;
+        squashX = 1 + this.LAND_SQUASH * u;   // stretch wide
+        squashY = 1 - this.LAND_SQUASH * u;   // squash flat
+      } else {
+        const u = (t - 0.22) / 0.78;
+        const f = Math.exp(-4 * u) * Math.cos(u * Math.PI * 3); // damped overshoot
+        squashX = 1 + this.LAND_SQUASH * f;
+        squashY = 1 - this.LAND_SQUASH * f;
+      }
+      this.landT += deltaMS;
+      if (t >= 1) this.landT = -1;
+    }
+    this.bodyContainer.scale.set(this.flyScale * squashX, this.flyScale * squashY);
+
     // ── Apply visual offsets to bodyContainer — NEVER to this.y ──
     // this.x / this.y are world coordinates owned by the controller.
     this.bodyContainer.y = -this.z + this.baseYOffset;
@@ -177,6 +209,20 @@ export class Character extends Container {
 
   setFlyBlend(blend: number): void {
     this.flyBlend = Math.max(0, Math.min(1, blend));
+  }
+
+  /**
+   * Set the flight scale (applied to bodyContainer in tick).
+   * Replaces direct `character.scale.set(...)` so the direction-flip sign
+   * on the outer container is never clobbered.
+   */
+  setFlyScale(s: number): void {
+    this.flyScale = Number.isFinite(s) ? s : 1;
+  }
+
+  /** Start the landing squash animation (called by WindEffect on touchdown). */
+  playLanding(): void {
+    this.landT = 0;
   }
 
   setHeight(h: number): void {
