@@ -1,12 +1,16 @@
 /**
  * ArtworkPopup.ts — Gallery artwork detail modal (HTML overlay).
  *
- * A warm, low-saturation card shown when a player double-taps an orbiting
+ * A warm, low-saturation card shown when a player clicks an orbiting
  * artwork. Displays the REAL artwork image (loaded from `artwork.imageUrl`,
  * served from `public/artworks/`), the title, year, medium, dimensions, price,
  * and an "Enquire to Buy" button that opens the visitor's mail client with a
  * pre-filled enquiry. If the image file is missing it shows an elegant
  * empty-state placeholder — never a broken image, never the procedural thumb.
+ *
+ * When a collection is provided via setCollection(), circular ‹ › buttons let
+ * the visitor step to the previous/next artwork (Arrow keys work too, and
+ * Escape closes the popup).
  *
  * The popup is a singleton — reuse it via show()/hide(). It appends itself to
  * the game container so it layers above the PixiJS canvas.
@@ -31,6 +35,15 @@ export class ArtworkPopup {
 
   /** Called when the popup closes (any reason). */
   private onCloseCallback: (() => void) | null = null;
+
+  /** Ordered list of artworks for prev/next navigation. */
+  private collection: Artwork[] = [];
+
+  /** Index of the currently shown artwork within `collection`. */
+  private currentIndex = -1;
+
+  /** Keydown handler ref (Arrow keys / Escape) so we can detach it. */
+  private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(parent: HTMLElement) {
     // ── Backdrop ──
@@ -104,9 +117,11 @@ export class ArtworkPopup {
 
   /** Show the popup for a given artwork. */
   show(art: Artwork): void {
+    this.currentIndex = this.collection.findIndex((a) => a.id === art.id);
     this.render(art);
     this.backdrop.style.display = 'flex';
     this.visible = true;
+    this.attachKeyboard();
   }
 
   /** Hide the popup. */
@@ -114,6 +129,7 @@ export class ArtworkPopup {
     if (!this.visible) return;
     this.backdrop.style.display = 'none';
     this.visible = false;
+    this.detachKeyboard();
     this.onCloseCallback?.();
   }
 
@@ -122,8 +138,48 @@ export class ArtworkPopup {
     this.onCloseCallback = cb;
   }
 
+  /** Provide the ordered artwork list to enable prev/next navigation. */
+  setCollection(artworks: Artwork[]): void {
+    this.collection = artworks;
+  }
+
   isVisible(): boolean {
     return this.visible;
+  }
+
+  // ── Navigation ──────────────────────────────────────────────
+
+  /** Step to the previous (-1) or next (+1) artwork, wrapping around. */
+  private navigate(dir: -1 | 1): void {
+    if (this.collection.length < 2 || this.currentIndex < 0) return;
+    const n = this.collection.length;
+    const next = (this.currentIndex + dir + n) % n;
+    this.show(this.collection[next]);
+  }
+
+  /** ArrowLeft/ArrowRight navigate, Escape closes — active while visible. */
+  private attachKeyboard(): void {
+    if (this.keyHandler) return;
+    this.keyHandler = (e: KeyboardEvent) => {
+      if (!this.visible) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        this.navigate(-1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        this.navigate(1);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.hide();
+      }
+    };
+    window.addEventListener('keydown', this.keyHandler);
+  }
+
+  private detachKeyboard(): void {
+    if (!this.keyHandler) return;
+    window.removeEventListener('keydown', this.keyHandler);
+    this.keyHandler = null;
   }
 
   // ── Rendering ───────────────────────────────────────────────
@@ -289,6 +345,52 @@ export class ArtworkPopup {
     // Force reflow so the animation restarts.
     void this.card.offsetWidth;
     this.card.style.animation = 'teebaiRise 0.2s ease-out';
+
+    // Prev/next artwork navigation (only when a collection is set).
+    this.appendNavButtons();
+  }
+
+  // ── Nav buttons ─────────────────────────────────────────────
+
+  /** Circular ‹ › buttons overlapping the card edges (carousel style). */
+  private appendNavButtons(): void {
+    if (this.collection.length < 2) return;
+
+    const makeBtn = (dir: -1 | 1): HTMLButtonElement => {
+      const b = document.createElement('button');
+      b.textContent = dir < 0 ? '‹' : '›';
+      b.setAttribute('aria-label', dir < 0 ? 'Previous artwork' : 'Next artwork');
+      Object.assign(b.style, {
+        position: 'absolute',
+        top: '150px', // roughly centred on the artwork image
+        ...(dir < 0 ? { left: '-18px' } : { right: '-18px' }),
+        width: '42px',
+        height: '42px',
+        border: 'none',
+        borderRadius: '50%',
+        background: '#FFFDF8',
+        color: '#6B5D50',
+        fontSize: '26px',
+        lineHeight: '1',
+        paddingBottom: '3px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 6px 18px rgba(40,30,20,0.32)',
+        zIndex: '2',
+      });
+      b.addEventListener('mouseenter', () => { b.style.background = '#F5EDE1'; });
+      b.addEventListener('mouseleave', () => { b.style.background = '#FFFDF8'; });
+      b.addEventListener('click', (e) => {
+        e.stopPropagation(); // never reach the backdrop's click-to-close
+        this.navigate(dir);
+      });
+      return b;
+    };
+
+    this.card.appendChild(makeBtn(-1));
+    this.card.appendChild(makeBtn(1));
   }
 
   // ── Enquiry action ──────────────────────────────────────────
@@ -306,6 +408,7 @@ export class ArtworkPopup {
   // ── Cleanup ─────────────────────────────────────────────────
 
   destroy(): void {
+    this.detachKeyboard();
     this.backdrop.remove();
   }
 }
