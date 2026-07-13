@@ -24,7 +24,7 @@ import { ArtworkPopup } from './ui/ArtworkPopup';
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'poe-stats-2026-07-13g';
+const BUILD_ID = 'hd-zoom-2026-07-13h';
 
 interface MmorpgAppProps {
   guestId?: string;
