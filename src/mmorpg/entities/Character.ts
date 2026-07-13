@@ -8,8 +8,23 @@
  * STRUCTURE (critical for wind/fly effect):
  *   Character (this Container)  ← this.x / this.y = WORLD POSITION
  *   └── bodyContainer           ← bodyContainer.y = fly height + walk bob (visual only)
- *       ├── glow, legs, feet, torso, arms, hands, ears, head, eyes, mouth
+ *       ├── glow (z0)
+ *       ├── legL, legR (z1)     ← Containers anchored AT the hip joints; child
+ *       │                         Graphics drawn in joint-local space (top at 0,0)
+ *       ├── torso (z2)          ← drawn OVER legs → hip seam hidden
+ *       ├── armL, armR (z3)     ← Containers anchored AT the shoulder joints
+ *       └── ears (z4), head (z5), eyes (z6), mouth (z7)
  *   └── shadow (sibling)        ← always at ground level, shrinks with height
+ *
+ * JOINT-ANCHOR RIG (Spine/Godot/OpenToonz/RO-ACT pattern):
+ *   Each limb is a child Container whose local origin sits EXACTLY on its
+ *   joint (hip/shoulder), derived only from torso metrics — never hardcoded.
+ *   Geometry extends distally from (0,0); feet/hands are drawn INSIDE the limb
+ *   graphics at the distal end so they can never drift. A full joint disc
+ *   centered on the pivot keeps the silhouette rotation-invariant, and the
+ *   walk cycle ROTATES limbs around the joints (pendulum) instead of
+ *   x-translating them — attachment is therefore invariant under DNA scaling
+ *   and cannot gap mid-stride.
  *
  * CRITICAL FIX: Previously tick() did `this.y = -this.z` which OVERWROTE
  * the world Y position every frame, freezing the character at y≈0.
@@ -26,15 +41,25 @@ import { angleToDirection8 } from '../utils/math2d';
 
 interface CharacterParts {
   glow: Graphics;
-  legs: Graphics;
-  feet: Graphics;
   torso: Graphics;
-  arms: Graphics;
-  hands: Graphics;
   ears: Graphics;
   head: Graphics;
   eyes: Graphics;
   mouth: Graphics;
+}
+
+/**
+ * Body metrics computed per pose draw from the SAME torso dimensions the
+ * torso graphics uses — limb joint anchors derive only from these values,
+ * so attachment can never disagree with the drawn torso.
+ */
+interface BodyMetrics {
+  torsoTop: number;     // constant -16 (neck line — head join stays untouched)
+  hipY: number;         // torsoTop + torsoH  (actual bottom of torso)
+  torsoHalfW: number;   // half-width from the dir-dependent torso formula
+  shoulderX: number;    // torsoHalfW * SHOULDER_INSET
+  shoulderY: number;    // torsoTop + 3
+  hipSpread: number;    // clamp((isSide ? 1 : 5) * legScale, 0, torsoHalfW * HIP_SPREAD_MAX)
 }
 
 export class Character extends Container {
@@ -45,6 +70,17 @@ export class Character extends Container {
 
   private parts: CharacterParts;
   private dna: CharacterDNA;
+
+  /** Limb hierarchy — each Container's position = joint anchor in body space. */
+  private legL: Container;
+  private legR: Container;
+  private armL: Container;
+  private armR: Container;
+  /** Limb geometry, drawn in joint-local space (proximal end at 0,0). */
+  private legLG: Graphics;
+  private legRG: Graphics;
+  private armLG: Graphics;
+  private armRG: Graphics;
 
   /** Current facing: { name ∈ E/SE/S/SW/W, flip: back-facing? } */
   private currentDir = { name: 'S', flip: false };
@@ -76,6 +112,20 @@ export class Character extends Container {
   /** Max squash/stretch amount on landing (0.22 = ±22%). */
   private readonly LAND_SQUASH = 0.22;
 
+  // ── Rig tuning constants ──
+  /** Walk swing amplitude in radians (~16°). */
+  private readonly SWING = 0.28;
+  /** Arms swing at this fraction of the leg swing, anti-phase. */
+  private readonly ARM_SWING_RATIO = 0.8;
+  /** Leg containers sit this many px ABOVE the hip line (into the torso). */
+  private readonly HIP_OVERLAP = 2;
+  /** Shoulder anchors sit at this fraction of the torso half-width. */
+  private readonly SHOULDER_INSET = 0.85;
+  /** Hip spread never exceeds this fraction of the torso half-width. */
+  private readonly HIP_SPREAD_MAX = 0.55;
+  /** Neck line: torso top is anchored here in every direction. */
+  private readonly TORSO_TOP = -16;
+
   constructor(dna: CharacterDNA) {
     super();
     this.dna = dna;
@@ -92,6 +142,20 @@ export class Character extends Container {
     this.bodyContainer.sortableChildren = true;
     this.addChild(this.bodyContainer);
 
+    // Joint-anchored limb containers + their local-space geometry
+    this.legL = new Container();
+    this.legR = new Container();
+    this.armL = new Container();
+    this.armR = new Container();
+    this.legLG = new Graphics();
+    this.legRG = new Graphics();
+    this.armLG = new Graphics();
+    this.armRG = new Graphics();
+    this.legL.addChild(this.legLG);
+    this.legR.addChild(this.legRG);
+    this.armL.addChild(this.armLG);
+    this.armR.addChild(this.armRG);
+
     this.parts = this.createParts();
     this.buildCharacter();
   }
@@ -99,11 +163,7 @@ export class Character extends Container {
   private createParts(): CharacterParts {
     return {
       glow: new Graphics(),
-      legs: new Graphics(),
-      feet: new Graphics(),
       torso: new Graphics(),
-      arms: new Graphics(),
-      hands: new Graphics(),
       ears: new Graphics(),
       head: new Graphics(),
       eyes: new Graphics(),
@@ -114,13 +174,26 @@ export class Character extends Container {
   private buildCharacter(): void {
     this.bodyContainer.removeChildren();
 
-    const order: (keyof CharacterParts)[] = [
-      'glow', 'legs', 'feet', 'torso', 'arms', 'hands', 'ears', 'head', 'eyes', 'mouth',
-    ];
-    order.forEach((key, i) => {
-      this.parts[key].zIndex = i;
-      this.bodyContainer.addChild(this.parts[key]);
-    });
+    // z-order: legs UNDER torso (hip seam hidden), arms OVER torso.
+    this.parts.glow.zIndex = 0;
+    this.legL.zIndex = 1;
+    this.legR.zIndex = 1;
+    this.parts.torso.zIndex = 2;
+    this.armL.zIndex = 3;
+    this.armR.zIndex = 3;
+    this.parts.ears.zIndex = 4;
+    this.parts.head.zIndex = 5;
+    this.parts.eyes.zIndex = 6;
+    this.parts.mouth.zIndex = 7;
+
+    this.bodyContainer.addChild(this.parts.glow);
+    this.bodyContainer.addChild(this.legL, this.legR);
+    this.bodyContainer.addChild(this.parts.torso);
+    this.bodyContainer.addChild(this.armL, this.armR);
+    this.bodyContainer.addChild(this.parts.ears);
+    this.bodyContainer.addChild(this.parts.head);
+    this.bodyContainer.addChild(this.parts.eyes);
+    this.bodyContainer.addChild(this.parts.mouth);
 
     this.redrawForDirection();
   }
@@ -243,6 +316,49 @@ export class Character extends Container {
     this.drawTorso(dir);
     this.drawGlow();
     this.redrawIdlePose();
+  }
+
+  /**
+   * Compute the body metrics for the current direction. These are the ONLY
+   * source of limb joint anchors, and they use the same torsoTop/torsoH/
+   * half-width values the torso graphics draws with — so limbs always attach
+   * to the REAL torso extents at any DNA scale.
+   */
+  private computeMetrics(dir: string): BodyMetrics {
+    const ts = this.dna.torsoScale * this.dna.bodyScale;
+    const ls = this.dna.legScale * this.dna.bodyScale;
+
+    const torsoTop = this.TORSO_TOP;
+    const torsoH = 18 * ts;
+    const hipY = torsoTop + torsoH;
+
+    // Half-width factor mirrors drawTorso()'s per-direction rect formula.
+    let halfFactor: number;
+    if (this.currentDir.flip) {
+      halfFactor = dir === 'S' ? 0.7 : 0.75;
+    } else if (dir === 'S') {
+      halfFactor = 1;
+    } else if (dir === 'E' || dir === 'W') {
+      halfFactor = 0.5;
+    } else {
+      halfFactor = 0.85; // SE / SW
+    }
+    const torsoHalfW = 12 * ts * halfFactor;
+
+    const isSide = dir === 'E' || dir === 'W';
+    const hipSpread = Math.min(
+      Math.max((isSide ? 1 : 5) * ls, 0),
+      torsoHalfW * this.HIP_SPREAD_MAX,
+    );
+
+    return {
+      torsoTop,
+      hipY,
+      torsoHalfW,
+      shoulderX: torsoHalfW * this.SHOULDER_INSET,
+      shoulderY: torsoTop + 3,
+      hipSpread,
+    };
   }
 
   private drawShadow(): void {
@@ -414,28 +530,36 @@ export class Character extends Container {
   private drawTorso(dir: string): void {
     const g = this.parts.torso;
     g.clear();
-    const s = this.dna.torsoScale * this.dna.bodyScale;
-    const w = 12 * s;
-    const h = 18 * s;
+    const ts = this.dna.torsoScale * this.dna.bodyScale;
+    const m = this.computeMetrics(dir);
+    const { torsoTop, hipY, torsoHalfW, shoulderX, shoulderY } = m;
+    const torsoH = hipY - torsoTop; // same height value the metrics expose
 
     if (this.currentDir.flip) {
       if (dir === 'S') {
         // Pure back (N) — centered, narrow
-        g.roundRect(-w * 0.7, -16, w * 1.4, h, 4);
+        g.roundRect(-torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 4);
       } else {
         // 3/4 back (NE/NW) — shift shoulders toward the turned side
         const toward = dir === 'SE' ? 1 : -1;
-        g.roundRect(toward * 2 - w * 0.75, -16, w * 1.5, h, 4);
+        g.roundRect(toward * 2 - torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 4);
       }
     } else if (dir === 'S') {
-      g.roundRect(-w, -16, w * 2, h, 5);
+      g.roundRect(-torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 5);
     } else if (dir === 'E' || dir === 'W') {
-      g.roundRect(-w * 0.5, -16, w, h, 3);
+      g.roundRect(-torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 3);
     } else {
-      g.roundRect(-w * 0.85, -16, w * 1.7, h, 4);
+      g.roundRect(-torsoHalfW, torsoTop, torsoHalfW * 2, torsoH, 4);
     }
     g.fill(0xFFFFFF);
     g.stroke({ width: 1, color: this.currentDir.flip ? 0xDDDDDD : 0xCCCCCC });
+
+    // Shoulder cap discs (white, no stroke) — when an arm rotates away the
+    // seam at the shoulder is still covered by the disc in the torso layer.
+    g.circle(-shoulderX, shoulderY, 4 * ts);
+    g.fill(0xFFFFFF);
+    g.circle(shoulderX, shoulderY, 4 * ts);
+    g.fill(0xFFFFFF);
   }
 
   private drawGlow(): void {
@@ -452,97 +576,83 @@ export class Character extends Container {
   //  POSES
   // ═════════════════════════════════════════════════════════════
 
+  /**
+   * Anchor the limb containers at their joints and (re)draw the limb
+   * geometry in joint-local space. Called by every pose draw. Placement
+   * derives only from BodyMetrics — DNA-invariant by construction.
+   */
+  private layoutLimbs(m: BodyMetrics): void {
+    // Joint anchors in body space. Legs overlap HIP_OVERLAP px up into the
+    // torso (which draws OVER them), so the hip seam can never show.
+    this.legL.position.set(-m.hipSpread, m.hipY - this.HIP_OVERLAP);
+    this.legR.position.set(m.hipSpread, m.hipY - this.HIP_OVERLAP);
+    this.armL.position.set(-m.shoulderX, m.shoulderY);
+    this.armR.position.set(m.shoulderX, m.shoulderY);
+
+    this.drawLegLocal(this.legLG);
+    this.drawLegLocal(this.legRG);
+    this.drawArmLocal(this.armLG);
+    this.drawArmLocal(this.armRG);
+  }
+
+  /** Leg + foot, drawn in joint-local space with the hip joint at (0,0). */
+  private drawLegLocal(g: Graphics): void {
+    const ls = this.dna.legScale * this.dna.bodyScale;
+    const legW = 4 * ls, legH = 14 * ls;
+    g.clear();
+    g.roundRect(-legW / 2, 0, legW, legH, 2);
+    g.fill(0xFFFFFF);
+    g.stroke({ width: 1, color: 0xCCCCCC });
+    // Hip joint disc — full circle centered ON the pivot: same silhouette
+    // at every walk rotation (OpenToonz hook technique).
+    g.circle(0, 0, legW * 0.75);
+    g.fill(0xFFFFFF);
+    // Foot at the distal end — lives inside the limb, cannot drift.
+    g.ellipse(0, legH + 1, 5 * ls, 3 * ls);
+    g.fill(0xFFFFFF);
+    g.stroke({ width: 1, color: 0xBBBBBB });
+  }
+
+  /** Arm + hand, drawn in joint-local space with the shoulder at (0,0). */
+  private drawArmLocal(g: Graphics): void {
+    const as_ = this.dna.armScale * this.dna.bodyScale;
+    const armW = 3.5 * as_, armH = 12 * as_;
+    g.clear();
+    g.roundRect(-armW / 2, 0, armW, armH, 2);
+    g.fill(0xFFFFFF);
+    g.stroke({ width: 1, color: 0xCCCCCC });
+    // Shoulder joint disc centered ON the pivot.
+    g.circle(0, 0, armW * 0.8);
+    g.fill(0xFFFFFF);
+    // Hand at the distal end.
+    g.circle(0, armH, 3 * as_);
+    g.fill(0xFFFFFF);
+    g.stroke({ width: 1, color: 0xBBBBBB });
+  }
+
   private redrawIdlePose(): void {
-    const dir = this.currentDir.name;
-    const s = this.dna.legScale * this.dna.bodyScale;
-    const ls = this.dna.armScale * this.dna.bodyScale;
-    const isSide = dir === 'E' || dir === 'W';
-
-    const legW = 4 * s, legH = 14 * s, legSpread = isSide ? 1 : 5;
-    const legG = this.parts.legs;
-    legG.clear();
-    legG.roundRect(-legSpread - legW, 0, legW, legH, 2);
-    legG.fill(0xFFFFFF);
-    legG.roundRect(legSpread, 0, legW, legH, 2);
-    legG.fill(0xFFFFFF);
-    legG.stroke({ width: 1, color: 0xCCCCCC });
-
-    const footW = 5 * s, footH = 3 * s;
-    const footG = this.parts.feet;
-    footG.clear();
-    footG.ellipse(-legSpread - 1, legH + 1, footW, footH);
-    footG.fill(0xFFFFFF);
-    footG.ellipse(legSpread + 1, legH + 1, footW, footH);
-    footG.fill(0xFFFFFF);
-    footG.stroke({ width: 1, color: 0xBBBBBB });
-
-    const armW = 3.5 * ls, armH = 12 * ls, armSpread = isSide ? 2 : 7;
-    const armG = this.parts.arms;
-    armG.clear();
-    armG.roundRect(-armSpread - armW, -12, armW, armH, 2);
-    armG.fill(0xFFFFFF);
-    armG.roundRect(armSpread, -12, armW, armH, 2);
-    armG.fill(0xFFFFFF);
-    armG.stroke({ width: 1, color: 0xCCCCCC });
-
-    const handR = 3 * ls;
-    const handG = this.parts.hands;
-    handG.clear();
-    handG.circle(-armSpread - armW * 0.5, -12 + armH, handR);
-    handG.fill(0xFFFFFF);
-    handG.circle(armSpread + armW * 0.5, -12 + armH, handR);
-    handG.fill(0xFFFFFF);
-    handG.stroke({ width: 1, color: 0xBBBBBB });
+    const m = this.computeMetrics(this.currentDir.name);
+    this.layoutLimbs(m);
+    // Snap to rest — joints pinned, zero swing (parity with old idle snap).
+    this.legL.rotation = 0;
+    this.legR.rotation = 0;
+    this.armL.rotation = 0;
+    this.armR.rotation = 0;
   }
 
   private redrawWalkPose(cycleT: number): void {
-    const dir = this.currentDir.name;
-    const s = this.dna.legScale * this.dna.bodyScale;
-    const ls = this.dna.armScale * this.dna.bodyScale;
-    const isSide = dir === 'E' || dir === 'W';
-
-    const legW = 4 * s, legH = 14 * s, stride = 4 * s;
-    const leftOff = Math.sin(cycleT * Math.PI * 2) * stride;
-    const rightOff = -leftOff;
-    const legSpread = isSide ? 1 : 5;
-
-    const legG = this.parts.legs;
-    legG.clear();
-    legG.roundRect(-legSpread - legW + leftOff, 0, legW, legH, 2);
-    legG.fill(0xFFFFFF);
-    legG.roundRect(legSpread + rightOff, 0, legW, legH, 2);
-    legG.fill(0xFFFFFF);
-    legG.stroke({ width: 1, color: 0xCCCCCC });
-
-    const footW = 5 * s, footH = 3 * s;
-    const footG = this.parts.feet;
-    footG.clear();
-    footG.ellipse(-legSpread - 1 + leftOff, legH + 1, footW, footH);
-    footG.fill(0xFFFFFF);
-    footG.ellipse(legSpread + 1 + rightOff, legH + 1, footW, footH);
-    footG.fill(0xFFFFFF);
-    footG.stroke({ width: 1, color: 0xBBBBBB });
-
-    const armW = 3.5 * ls, armH = 12 * ls, armSpread = isSide ? 2 : 7, swing = 3 * ls;
-    const leftArmOff = rightOff / stride * swing;
-    const rightArmOff = leftOff / stride * swing;
-
-    const armG = this.parts.arms;
-    armG.clear();
-    armG.roundRect(-armSpread - armW + leftArmOff, -12, armW, armH, 2);
-    armG.fill(0xFFFFFF);
-    armG.roundRect(armSpread + rightArmOff, -12, armW, armH, 2);
-    armG.fill(0xFFFFFF);
-    armG.stroke({ width: 1, color: 0xCCCCCC });
-
-    const handR = 3 * ls;
-    const handG = this.parts.hands;
-    handG.clear();
-    handG.circle(-armSpread - armW * 0.5 + leftArmOff, -12 + armH, handR);
-    handG.fill(0xFFFFFF);
-    handG.circle(armSpread + armW * 0.5 + rightArmOff, -12 + armH, handR);
-    handG.fill(0xFFFFFF);
-    handG.stroke({ width: 1, color: 0xBBBBBB });
+    const m = this.computeMetrics(this.currentDir.name);
+    this.layoutLimbs(m);
+    // Pendulum around the joint pivots — legs anti-phase, arms anti-phase
+    // to the same-side leg. Rotation never moves the joint anchors, so no
+    // gap can open mid-stride. Mirrored (flip) views inherit this via the
+    // outer container's scale.x = -1 — no special case needed.
+    const phase = Math.sin(cycleT * Math.PI * 2);
+    const armSwing = this.ARM_SWING_RATIO * this.SWING;
+    this.legL.rotation = this.SWING * phase;
+    this.legR.rotation = -this.SWING * phase;
+    this.armL.rotation = -armSwing * phase;
+    this.armR.rotation = armSwing * phase;
   }
 
   // ═════════════════════════════════════════════════════════════
@@ -551,6 +661,11 @@ export class Character extends Container {
     for (const key of Object.keys(this.parts) as (keyof CharacterParts)[]) {
       this.parts[key].destroy();
     }
+    // Limb containers own their geometry — destroy children too.
+    this.legL.destroy({ children: true });
+    this.legR.destroy({ children: true });
+    this.armL.destroy({ children: true });
+    this.armR.destroy({ children: true });
     this.shadowGraphics.destroy();
     super.destroy(options);
   }
