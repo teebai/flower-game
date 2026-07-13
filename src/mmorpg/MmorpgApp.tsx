@@ -24,7 +24,7 @@ import { ArtworkPopup } from './ui/ArtworkPopup';
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'bloom-2026-07-13c';
+const BUILD_ID = 'oneclick-2026-07-13d';
 
 interface MmorpgAppProps {
   guestId?: string;
@@ -139,9 +139,10 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       orbitingArtworks.push(node);
     });
 
-    // ── Bloom the gallery when the flower is tapped ──
-    // On the first tap, every artwork flies out of the flower centre into its
-    // orbit, staggered so they blossom one after another.
+    // ── Bloom the gallery on a SINGLE click of the flower ──
+    // The flower fires on pointerdown (see MassiveFlower.enableInteraction),
+    // so one press instantly blossoms every artwork out of the centre,
+    // staggered so they open one after another.
     galleryFlower.enableInteraction(() => {
       lastArtworkTap = performance.now(); // suppress click-to-move from this tap
       orbitingArtworks.forEach((art, i) => art.bloom(i * 70));
