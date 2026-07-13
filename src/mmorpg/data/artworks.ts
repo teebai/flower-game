@@ -33,6 +33,13 @@ export interface Artwork {
   /** Optional real image URL — overrides procedural thumbnail */
   imageUrl?: string;
 
+  /** Rarity tier — colours the item header (PoE-style). Defaults to 'unique'. */
+  rarity?: 'normal' | 'magic' | 'rare' | 'unique';
+  /** PoE-style "mods" — short flavour stat lines shown in blue. */
+  flavorMods: string[];
+  /** The story behind the artwork, shown as italic flavour text. */
+  story: string;
+
   /* ── Orbit assignment (filled in by buildGalleryOrbits) ── */
   /** Horizontal orbit radius around gallery center */
   orbitRadius: number;
@@ -90,8 +97,8 @@ function hex(color: number): string {
  * Deterministic from `artwork.seed` + `artwork.palette`.
  *
  * @param artwork  The artwork to render.
- * @param size     Canvas width/height in px (square). Used for the in-world
- *                 orbiting thumbnail (~128). The popup uses real images.
+ * @param size     Canvas width/height in px (square). Use ~96 for in-world,
+ *                 ~360 for the popup.
  */
 export function generateArtworkCanvas(artwork: Artwork, size: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -214,48 +221,72 @@ export const GALLERY_ARTWORKS: Artwork[] = [
     id: 'art-001', title: 'Bloom No. 7', year: 2024,
     medium: 'Acrylic on canvas', dimensions: '60 × 80 cm',
     price: 1200, currency: 'USD', seed: 1147, palette: PALETTES[0],
+    rarity: 'unique',
+    flavorMods: ['+52 to Warmth', '18% increased Petal Density', 'Grants Level 12 Bloom Aura'],
+    story: 'Painted in the last week of spring, when the studio still smelled of rain and turpentine. Seven blossoms — one for each year the artist almost gave up. The seventh is the only one that looks directly back at you.',
     orbitRadius: 0, orbitSpeed: 0, orbitOffset: 0, orbitTilt: 0,
   },
   {
     id: 'art-002', title: 'Soft Petals', year: 2023,
     medium: 'Watercolor on paper', dimensions: '40 × 50 cm',
     price: 650, currency: 'USD', seed: 2291, palette: PALETTES[1],
+    rarity: 'unique',
+    flavorMods: ['+38 to Tranquility', '25% increased Colour Bleed', 'Immune to Criticism'],
+    story: 'A study in letting go. The water was allowed to wander wherever it wished, and the artist simply followed. What dried in place became the painting; what ran away became the lesson.',
     orbitRadius: 0, orbitSpeed: 0, orbitOffset: 0, orbitTilt: 0,
   },
   {
     id: 'art-003', title: 'Golden Hour', year: 2024,
     medium: 'Oil on linen', dimensions: '70 × 90 cm',
     price: null, currency: 'USD', seed: 3407, palette: PALETTES[4],
+    rarity: 'unique',
+    flavorMods: ['+66 to Radiance', '40% increased Light Radius', 'Cannot be Dimmed'],
+    story: 'That brief hour when the whole world turns to honey and everything forgives everything else. The artist chased it across fourteen canvases before it finally agreed to stay. This is the one it chose.',
     orbitRadius: 0, orbitSpeed: 0, orbitOffset: 0, orbitTilt: 0,
   },
   {
     id: 'art-004', title: 'Garden Study', year: 2022,
     medium: 'Gouache on board', dimensions: '30 × 40 cm',
     price: 480, currency: 'USD', seed: 4513, palette: PALETTES[3],
+    rarity: 'unique',
+    flavorMods: ['+31 to Patience', '12% increased Growth', 'Regenerate 2% Calm per second'],
+    story: 'Sketched among the real thing, knees in the soil and an audience of bees. The greens were mixed from leaves the artist actually crushed between their fingers. On a warm day it still faintly smells of summer.',
     orbitRadius: 0, orbitSpeed: 0, orbitOffset: 0, orbitTilt: 0,
   },
   {
     id: 'art-005', title: 'Iris Dream', year: 2024,
     medium: 'Acrylic on canvas', dimensions: '50 × 70 cm',
     price: 980, currency: 'USD', seed: 5629, palette: PALETTES[7],
+    rarity: 'unique',
+    flavorMods: ['+45 to Vision', '30% increased Dream Recall', 'Grants Foresight'],
+    story: 'The iris opened in a dream first, glowing in a garden that does not exist. It took three months of waking attempts before the canvas finally remembered it too. Some say it still has not fully woken up.',
     orbitRadius: 0, orbitSpeed: 0, orbitOffset: 0, orbitTilt: 0,
   },
   {
     id: 'art-006', title: 'Peach Whisper', year: 2023,
     medium: 'Mixed media', dimensions: '45 × 60 cm',
     price: 720, currency: 'USD', seed: 6731, palette: PALETTES[2],
+    rarity: 'unique',
+    flavorMods: ['+29 to Tenderness', '20% increased Softness', '10% chance to Comfort on viewing'],
+    story: 'A secret told in colour rather than words. It was painted in a single sitting, in near silence, while a storm gathered outside. Only those who stand very close can hear what the peach is whispering.',
     orbitRadius: 0, orbitSpeed: 0, orbitOffset: 0, orbitTilt: 0,
   },
   {
     id: 'art-007', title: 'Morning Mist', year: 2025,
     medium: 'Watercolor on paper', dimensions: '35 × 45 cm',
     price: 540, currency: 'USD', seed: 7873, palette: PALETTES[5],
+    rarity: 'unique',
+    flavorMods: ['+34 to Stillness', '35% increased Haze', 'Slows nearby viewers with awe'],
+    story: 'Painted before sunrise from a cold windowsill, with numb fingers and a warm mug going slowly cold. The mist lifted off the hills and, for one wet hour, settled onto the paper instead. It never quite left.',
     orbitRadius: 0, orbitSpeed: 0, orbitOffset: 0, orbitTilt: 0,
   },
   {
     id: 'art-008', title: 'Ember Bloom', year: 2024,
     medium: 'Oil on canvas', dimensions: '80 × 100 cm',
     price: 1800, currency: 'USD', seed: 8941, palette: PALETTES[6],
+    rarity: 'unique',
+    flavorMods: ['+71 to Passion', '50% increased Burning Intensity', 'Ignites nearby Imagination'],
+    story: 'The largest and the boldest in the collection. It began as a small spark in the corner of the canvas and was simply never told to stop growing. Stand too long in front of it and you may start to feel warm.',
     orbitRadius: 0, orbitSpeed: 0, orbitOffset: 0, orbitTilt: 0,
   },
 ];
