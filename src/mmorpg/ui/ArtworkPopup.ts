@@ -2,10 +2,11 @@
  * ArtworkPopup.ts — Gallery artwork detail modal (HTML overlay).
  *
  * A warm, low-saturation card shown when a player double-taps an orbiting
- * artwork. Displays the procedural image (same canvas as the in-world
- * thumbnail, rendered larger), the title, year, medium, dimensions, price,
+ * artwork. Displays the REAL artwork image (loaded from `artwork.imageUrl`,
+ * served from `public/artworks/`), the title, year, medium, dimensions, price,
  * and an "Enquire to Buy" button that opens the visitor's mail client with a
- * pre-filled enquiry.
+ * pre-filled enquiry. If the image file is missing it shows an elegant
+ * empty-state placeholder — never a broken image, never the procedural thumb.
  *
  * The popup is a singleton — reuse it via show()/hide(). It appends itself to
  * the game container so it layers above the PixiJS canvas.
@@ -15,7 +16,7 @@
  */
 
 import type { Artwork } from '../data/artworks';
-import { generateArtworkCanvas, formatPrice } from '../data/artworks';
+import { formatPrice } from '../data/artworks';
 
 /** Where purchase enquiries go. Change to the artist's real address. */
 const ENQUIRY_EMAIL = 'hello@teebai.flowers';
@@ -160,7 +161,7 @@ export class ArtworkPopup {
     });
     this.card.appendChild(close);
 
-    // ── Artwork image ──
+    // ── Artwork image (REAL artwork, loaded from imageUrl) ──
     const imgWrap = document.createElement('div');
     Object.assign(imgWrap.style, {
       width: '100%',
@@ -169,13 +170,51 @@ export class ArtworkPopup {
       boxShadow: '0 6px 18px rgba(60,45,30,0.18)',
       marginBottom: '16px',
       background: '#EFE7DA',
+      minHeight: '240px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
     });
 
-    const canvas = generateArtworkCanvas(art, 360);
-    canvas.style.display = 'block';
-    canvas.style.width = '100%';
-    canvas.style.height = 'auto';
-    imgWrap.appendChild(canvas);
+    const showPlaceholder = () => {
+      imgWrap.innerHTML = '';
+      const ph = document.createElement('div');
+      Object.assign(ph.style, {
+        textAlign: 'center',
+        color: '#B7A892',
+        padding: '24px',
+      });
+      ph.innerHTML =
+        '<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style="margin:0 auto 10px;display:block;">' +
+        '<g fill="#C9B79A">' +
+        '<circle cx="20" cy="9" r="5"/><circle cx="20" cy="31" r="5"/>' +
+        '<circle cx="9" cy="20" r="5"/><circle cx="31" cy="20" r="5"/>' +
+        '<circle cx="11.5" cy="11.5" r="5"/><circle cx="28.5" cy="28.5" r="5"/>' +
+        '<circle cx="28.5" cy="11.5" r="5"/><circle cx="11.5" cy="28.5" r="5"/>' +
+        '</g><circle cx="20" cy="20" r="6" fill="#9C6B3F"/></svg>' +
+        '<div style="font-size:14px;font-weight:600;">Artwork image</div>';
+      imgWrap.appendChild(ph);
+    };
+
+    if (art.imageUrl) {
+      const img = document.createElement('img');
+      img.alt = art.title;
+      Object.assign(img.style, {
+        display: 'block',
+        width: '100%',
+        height: 'auto',
+      });
+      img.addEventListener('load', () => { imgWrap.style.minHeight = '0'; });
+      img.addEventListener('error', () => {
+        // eslint-disable-next-line no-console
+        console.warn(`[gallery] Missing artwork image: ${art.imageUrl}`);
+        showPlaceholder();
+      });
+      img.src = art.imageUrl;
+      imgWrap.appendChild(img);
+    } else {
+      showPlaceholder();
+    }
     this.card.appendChild(imgWrap);
 
     // ── Title ──
