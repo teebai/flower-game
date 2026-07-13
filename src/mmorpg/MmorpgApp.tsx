@@ -24,7 +24,7 @@ import { ArtworkPopup } from './ui/ArtworkPopup';
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'oneclick-2026-07-13e';
+const BUILD_ID = 'gallery-nav-2026-07-13f';
 
 interface MmorpgAppProps {
   guestId?: string;
@@ -118,6 +118,8 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
 
     // Artwork detail popup (HTML overlay).
     const artworkPopup = new ArtworkPopup(container);
+    // Ordered catalogue enables ‹ › prev/next navigation inside the popup.
+    artworkPopup.setCollection(GALLERY_ARTWORKS);
     artworkPopup.onClose(() => controller.setEnabled(true));
 
     // Timestamp of the most recent artwork tap — used to suppress the
