@@ -13,7 +13,8 @@
  *       │                         Graphics drawn in joint-local space (top at 0,0)
  *       ├── torso (z2)          ← drawn OVER legs → hip seam hidden
  *       ├── armL, armR (z3)     ← Containers anchored AT the shoulder joints
- *       └── ears (z4), head (z5), eyes (z6), mouth (z7)
+ *       └── earGL, earGR (z4)   ← EarlobeSim ribbon graphics (Verlet physics)
+ *           head (z5), eyes (z6), mouth (z7)
  *   └── shadow (sibling)        ← always at ground level, shrinks with height
  *
  * JOINT-ANCHOR RIG (Spine/Godot/OpenToonz/RO-ACT pattern):
@@ -37,15 +38,37 @@
 
 import { Container, Graphics } from 'pixi.js';
 import type { CharacterDNA } from '../game/CharacterGenerator';
-import { angleToDirection8 } from '../utils/math2d';
+import { angleToDirection8, clamp } from '../utils/math2d';
+import { EarlobeSim } from './EarlobeSim';
 
 interface CharacterParts {
   glow: Graphics;
   torso: Graphics;
-  ears: Graphics;
   head: Graphics;
   eyes: Graphics;
   mouth: Graphics;
+}
+
+/**
+ * Per-direction layout for ONE earlobe, mirroring the old static drawEars
+ * table (anchors, visibility, width multiplier). lenMul follows the spec
+ * formula (1 normally, 0.6 for the far-short back lobes); alpha/stroke
+ * reproduce the old far-ear and back-view tints.
+ */
+interface EarLayoutEntry {
+  /** Socket anchor in body-local space. */
+  x: number;
+  y: number;
+  /** False = lobe not drawn this direction (clears its Graphics). */
+  visible: boolean;
+  /** Root-width multiplier (far ear = 0.5×). */
+  wMul: number;
+  /** Graphics alpha (0 hidden, 0.75 far ear, 1 full). */
+  alpha: number;
+  /** Rest-length multiplier (far-short back lobe = 0.6×). */
+  lenMul: number;
+  /** Outline tint (0xCCCCCC front, 0xDDDDDD back/far — old drawEars colors). */
+  stroke: number;
 }
 
 /**
@@ -81,6 +104,24 @@ export class Character extends Container {
   private legRG: Graphics;
   private armLG: Graphics;
   private armRG: Graphics;
+
+  /** Earlobe ribbons — one Graphics + one Verlet sim per lobe (z4 slot). */
+  private earGL: Graphics;
+  private earGR: Graphics;
+  private lobeL: EarlobeSim;
+  private lobeR: EarlobeSim;
+  /** Current per-lobe outline tint (set by applyEarLayout, used each render). */
+  private earStrokeL = 0xCCCCCC;
+  private earStrokeR = 0xCCCCCC;
+
+  /** World-position sample for velocity derivation (null until first tick). */
+  private lastWorldPos: { x: number; y: number } | null = null;
+  /** Smoothed body-local velocity fed to the sims (allocated once). */
+  private readonly smoothV = { x: 0, y: 0 };
+  /** Previous frame's smoothV, for acceleration derivation. */
+  private readonly prevSmoothV = { x: 0, y: 0 };
+  /** Reused acceleration vector passed into lobe.step() (no per-frame alloc). */
+  private readonly accelLocal = { x: 0, y: 0 };
 
   /** Current facing: { name ∈ E/SE/S/SW/W, flip: back-facing? } */
   private currentDir = { name: 'S', flip: false };
@@ -126,6 +167,16 @@ export class Character extends Container {
   /** Neck line: torso top is anchored here in every direction. */
   private readonly TORSO_TOP = -16;
 
+  // ── Earlobe physics tuning (driver side — sim internals in EarlobeSim.ts) ──
+  /** EMA factor for world→body-local velocity smoothing (0..1 per frame). */
+  private readonly EAR_VEL_EMA = 0.35;
+  /** Velocity clamp fed to the sims (px/s) — Spine "Limit" equivalent. */
+  private readonly EAR_MAX_SPEED = 600;
+  /** Acceleration clamp fed to the sims (px/s²). */
+  private readonly EAR_MAX_ACCEL = 3000;
+  /** World speed above this = teleport/zone warp → settle lobes, zero velocity. */
+  private readonly EAR_TELEPORT_SPEED = 1500;
+
   constructor(dna: CharacterDNA) {
     super();
     this.dna = dna;
@@ -156,6 +207,24 @@ export class Character extends Container {
     this.armL.addChild(this.armLG);
     this.armR.addChild(this.armRG);
 
+    // Earlobe physics — created BEFORE buildCharacter() so redrawForDirection
+    // can apply the initial layout. Geometry comes from EarlobeSim.render().
+    this.earGL = new Graphics();
+    this.earGR = new Graphics();
+    const es = this.dna.earScale * this.dna.bodyScale;
+    this.lobeL = new EarlobeSim({
+      segLen: (22 * es) / 5,
+      width: 2 * (5 * es), // matches old earW·2
+      anchorX: -13,
+      anchorY: -30,
+    });
+    this.lobeR = new EarlobeSim({
+      segLen: (22 * es) / 5,
+      width: 2 * (5 * es),
+      anchorX: 13,
+      anchorY: -30,
+    });
+
     this.parts = this.createParts();
     this.buildCharacter();
   }
@@ -164,7 +233,6 @@ export class Character extends Container {
     return {
       glow: new Graphics(),
       torso: new Graphics(),
-      ears: new Graphics(),
       head: new Graphics(),
       eyes: new Graphics(),
       mouth: new Graphics(),
@@ -181,7 +249,8 @@ export class Character extends Container {
     this.parts.torso.zIndex = 2;
     this.armL.zIndex = 3;
     this.armR.zIndex = 3;
-    this.parts.ears.zIndex = 4;
+    this.earGL.zIndex = 4;
+    this.earGR.zIndex = 4;
     this.parts.head.zIndex = 5;
     this.parts.eyes.zIndex = 6;
     this.parts.mouth.zIndex = 7;
@@ -190,7 +259,7 @@ export class Character extends Container {
     this.bodyContainer.addChild(this.legL, this.legR);
     this.bodyContainer.addChild(this.parts.torso);
     this.bodyContainer.addChild(this.armL, this.armR);
-    this.bodyContainer.addChild(this.parts.ears);
+    this.bodyContainer.addChild(this.earGL, this.earGR);
     this.bodyContainer.addChild(this.parts.head);
     this.bodyContainer.addChild(this.parts.eyes);
     this.bodyContainer.addChild(this.parts.mouth);
@@ -276,6 +345,59 @@ export class Character extends Container {
     const heightRatio = Math.max(0, Math.min(1, this.z / 200));
     this.shadowGraphics.scale.set(1 - heightRatio * 0.5);
     this.shadowGraphics.alpha = 1 - heightRatio * 0.7;
+
+    // ── Earlobe physics: derive body-local velocity/acceleration from the
+    //    world-position delta, then step + render both sims. ──
+    const dtSec = deltaMS / 1000;
+    if (dtSec > 0 && this.lastWorldPos) {
+      let vx = (this.x - this.lastWorldPos.x) / dtSec;
+      let vy = (this.y - this.lastWorldPos.y) / dtSec;
+      // Teleport guard (zone warps / huge snaps): settle instead of exploding.
+      if (Math.hypot(vx, vy) > this.EAR_TELEPORT_SPEED) {
+        this.lobeL.settle();
+        this.lobeR.settle();
+        vx = 0;
+        vy = 0;
+      }
+      // Body-local frame: the outer container's scale.x is negative for
+      // mirrored (back-facing) directions, so local X mirrors world X.
+      const flipSign = this.currentDir.flip ? -1 : 1;
+      const vlx = vx * flipSign;
+      const vly = vy;
+      // EMA smoothing + magnitude clamp.
+      this.smoothV.x += (vlx - this.smoothV.x) * this.EAR_VEL_EMA;
+      this.smoothV.y += (vly - this.smoothV.y) * this.EAR_VEL_EMA;
+      const sp = Math.hypot(this.smoothV.x, this.smoothV.y);
+      if (sp > this.EAR_MAX_SPEED) {
+        const s = this.EAR_MAX_SPEED / sp;
+        this.smoothV.x *= s;
+        this.smoothV.y *= s;
+      }
+      // Acceleration from the smoothed velocity delta (clamped).
+      this.accelLocal.x = clamp(
+        (this.smoothV.x - this.prevSmoothV.x) / dtSec,
+        -this.EAR_MAX_ACCEL,
+        this.EAR_MAX_ACCEL,
+      );
+      this.accelLocal.y = clamp(
+        (this.smoothV.y - this.prevSmoothV.y) / dtSec,
+        -this.EAR_MAX_ACCEL,
+        this.EAR_MAX_ACCEL,
+      );
+      this.lobeL.step(dtSec, this.smoothV, this.accelLocal);
+      this.lobeR.step(dtSec, this.smoothV, this.accelLocal);
+      this.prevSmoothV.x = this.smoothV.x;
+      this.prevSmoothV.y = this.smoothV.y;
+    }
+    // Record world position (first tick only records — no velocity yet).
+    if (this.lastWorldPos) {
+      this.lastWorldPos.x = this.x;
+      this.lastWorldPos.y = this.y;
+    } else {
+      this.lastWorldPos = { x: this.x, y: this.y };
+    }
+    this.lobeL.render(this.earGL, 0xFFFFFF, this.earStrokeL);
+    this.lobeR.render(this.earGR, 0xFFFFFF, this.earStrokeR);
   }
 
   // ── Wind effect API ─────────────────────────────────────────
@@ -310,7 +432,7 @@ export class Character extends Container {
     const dir = this.currentDir.name;
     this.drawShadow();
     this.drawHead(dir);
-    this.drawEars(dir);
+    this.applyEarLayout();
     this.drawEyes(dir);
     this.drawMouth(dir);
     this.drawTorso(dir);
@@ -414,49 +536,83 @@ export class Character extends Container {
     }
   }
 
-  private drawEars(dir: string): void {
-    const g = this.parts.ears;
-    g.clear();
-    const es = this.dna.earScale * this.dna.bodyScale;
-    const earW = 5 * es;
-    const earH = 22 * es;
-
-    if (this.currentDir.flip) {
-      // Back view. N = symmetric splay; NE/NW = asymmetric 3/4 turn.
+  /**
+   * Per-direction lobe table — mirrors the old static drawEars exactly:
+   * front S both lobes, E/W one side only, SE/SW near + subdued far, back
+   * variants with the turned-side near ear and the tucked far ear.
+   * Returns [left, right] entries in body-local space (flip handled by the
+   * outer container's negative scale.x, so left/right stay anatomical).
+   */
+  private earLayoutFor(dir: string, flip: boolean): [EarLayoutEntry, EarLayoutEntry] {
+    if (flip) {
+      // Back view. N = symmetric; NE ('SE') / NW ('SW') = 3/4 turn.
       if (dir === 'S') {
-        // Pure back: both ears splay out sideways evenly
-        this.drawEarLobe(g, -12, -32, -earW, earH, true);
-        this.drawEarLobe(g, 12, -32, earW, earH, true);
-      } else {
-        // 3/4 back — NE ('SE') / NW ('SW'): near ear (turned side) is full
-        // and droops outward; far ear is shorter and tucked behind the head.
-        const toward = dir === 'SE' ? 1 : -1; // local turned side (container flipped)
-        // Near ear — prominent, angled outward
-        this.drawEarLobe(g, toward * 14, -31, toward * earW, earH, true);
-        // Far ear — shorter, peeking from behind head on the other side
-        this.drawEarLobe(g, toward * -9, -30, toward * -earW * 0.5, earH * 0.6, true);
+        return [
+          { x: -12, y: -32, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD },
+          { x: 12, y: -32, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD },
+        ];
       }
-    } else if (dir === 'S') {
-      this.drawEarLobe(g, -13, -30, -earW, earH, false);
-      this.drawEarLobe(g, 13, -30, earW, earH, false);
-    } else if (dir === 'E' || dir === 'W') {
-      const sideX = dir === 'E' ? 14 : -14;
-      const sideW = dir === 'E' ? earW : -earW;
-      this.drawEarLobe(g, sideX, -30, sideW, earH, false);
-    } else {
-      // SE / SW
-      const isSE = dir === 'SE';
-      this.drawEarLobe(g, isSE ? 13 : -13, -30, isSE ? earW : -earW, earH, false);
-      this.drawEarLobe(g, isSE ? -8 : 8, -30, isSE ? -earW * 0.5 : earW * 0.5, earH * 0.7, true);
+      // toward: local turned side (container is flipped).
+      const toward = dir === 'SE' ? 1 : -1;
+      return [
+        toward === 1
+          ? { x: -9, y: -30, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 0.6, stroke: 0xDDDDDD }  // far
+          : { x: -14, y: -31, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD },        // near
+        toward === 1
+          ? { x: 14, y: -31, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xDDDDDD }          // near
+          : { x: 9, y: -30, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 0.6, stroke: 0xDDDDDD },    // far
+      ];
     }
+    if (dir === 'S') {
+      return [
+        { x: -13, y: -30, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xCCCCCC },
+        { x: 13, y: -30, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xCCCCCC },
+      ];
+    }
+    if (dir === 'E' || dir === 'W') {
+      // One side only at ±14; the hidden lobe keeps simulating (invisibly)
+      // at its front-S socket (±13) so a later reveal already carries
+      // natural momentum.
+      return [
+        { x: dir === 'W' ? -14 : -13, y: -30, visible: dir === 'W', wMul: 1, alpha: dir === 'W' ? 1 : 0, lenMul: 1, stroke: 0xCCCCCC },
+        { x: dir === 'E' ? 14 : 13, y: -30, visible: dir === 'E', wMul: 1, alpha: dir === 'E' ? 1 : 0, lenMul: 1, stroke: 0xCCCCCC },
+      ];
+    }
+    // SE / SW — near lobe full, far lobe subdued (half width, 0.75 alpha).
+    const isSE = dir === 'SE';
+    return [
+      isSE
+        ? { x: -8, y: -30, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 1, stroke: 0xDDDDDD }   // far
+        : { x: -13, y: -30, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xCCCCCC },      // near
+      isSE
+        ? { x: 13, y: -30, visible: true, wMul: 1, alpha: 1, lenMul: 1, stroke: 0xCCCCCC }        // near
+        : { x: 8, y: -30, visible: true, wMul: 0.5, alpha: 0.75, lenMul: 1, stroke: 0xDDDDDD },   // far
+    ];
   }
 
-  private drawEarLobe(g: Graphics, x: number, y: number, w: number, h: number, isBack: boolean): void {
-    g.ellipse(x, y + h * 0.3, Math.abs(w) + 1, h * 0.5);
-    g.fill(0xFFFFFF);
-    g.stroke({ width: 1, color: isBack ? 0xDDDDDD : 0xCCCCCC });
-    g.ellipse(x + w * 0.15, y + h * 0.25, Math.abs(w) * 0.5, h * 0.3);
-    g.fill(isBack ? 0xF5F5F5 : 0xFFF8F0);
+  /**
+   * Push the current direction's layout onto both sims WITHOUT settling —
+   * momentum survives direction changes. Called from redrawForDirection().
+   */
+  private applyEarLayout(): void {
+    const es = this.dna.earScale * this.dna.bodyScale;
+    const baseSeg = (22 * es) / 5;
+    const [l, r] = this.earLayoutFor(this.currentDir.name, this.currentDir.flip);
+    this.earStrokeL = l.stroke;
+    this.earStrokeR = r.stroke;
+    this.applyLobe(this.lobeL, this.earGL, l, baseSeg);
+    this.applyLobe(this.lobeR, this.earGR, r, baseSeg);
+  }
+
+  private applyLobe(sim: EarlobeSim, g: Graphics, e: EarLayoutEntry, baseSeg: number): void {
+    // Was hidden → the length transition is invisible, so snap it; a visible
+    // lobe eases to its new rest length over a few frames instead of popping.
+    const snap = !sim.isVisible();
+    sim.setAnchor(e.x, e.y);
+    sim.setWidthScale(e.wMul);
+    sim.setSegLen(baseSeg * e.lenMul, snap);
+    sim.setVisible(e.visible);
+    g.alpha = e.alpha;
   }
 
   private drawEyes(dir: string): void {
@@ -661,6 +817,9 @@ export class Character extends Container {
     for (const key of Object.keys(this.parts) as (keyof CharacterParts)[]) {
       this.parts[key].destroy();
     }
+    // Earlobe ribbon graphics (the sims are plain data — nothing to free).
+    this.earGL.destroy();
+    this.earGR.destroy();
     // Limb containers own their geometry — destroy children too.
     this.legL.destroy({ children: true });
     this.legR.destroy({ children: true });
