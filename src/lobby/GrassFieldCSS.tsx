@@ -6,12 +6,6 @@
  * drop-in replacement for the Pixi GrassField when the lobby is shown
  * as a popup over the MMORPG world (where two WebGL contexts would
  * fight each other).
- *
- * Matches the original GrassField visual style:
- *   - Spring palette: pale greens (#DBF9DB, #C3FDB8)
- *   - Very low opacity (0.08-0.18) — blades are subtle atmosphere
- *   - Thick blades (4-8px) with rounded tops
- *   - Smooth swaying via GPU-composited CSS transforms
  */
 
 import { useMemo } from 'react';
@@ -19,7 +13,7 @@ import { useMemo } from 'react';
 interface Blade {
   id: number;
   x: number;        // 0–100 (%)
-  y: number;        // 2–17 (%) bottom position — CACHED, not random per render
+  y: number;        // 2–22 (%) bottom position — CACHED in useMemo
   h: number;        // blade height (px)
   w: number;        // blade width (px)
   delay: number;    // animation delay (s)
@@ -38,8 +32,7 @@ interface Sparkle {
   size: number;
 }
 
-/** Original spring blade colors from GrassField.tsx SEASON_BLADE_COLORS */
-const BLADE_COLORS = ['#DBF9DB', '#C3FDB8'];
+const BLADE_COLORS = ['#DBF9DB', '#C3FDB8', '#B8E6B8'];
 
 function generateBlades(count: number): Blade[] {
   const blades: Blade[] = [];
@@ -47,14 +40,14 @@ function generateBlades(count: number): Blade[] {
     blades.push({
       id: i,
       x: Math.random() * 100,
-      y: Math.random() * 15 + 2,       // 2–17% from bottom — CACHED
-      h: 20 + Math.random() * 26,      // 20–46 px (match original)
-      w: 4 + Math.random() * 4,        // 4–8 px thick (match original)
+      y: Math.random() * 20 + 2,       // 2–22% from bottom — CACHED
+      h: 24 + Math.random() * 32,      // 24–56 px
+      w: 4 + Math.random() * 5,        // 4–9 px thick
       delay: Math.random() * -4,       // stagger start
       dur: 2.2 + Math.random() * 1.6,  // 2.2–3.8 s
       color: BLADE_COLORS[i % BLADE_COLORS.length],
       sway: 3 + Math.random() * 5,     // 3–8 deg gentle sway
-      opacity: 0.08 + Math.random() * 0.10, // 0.08-0.18 (very subtle)
+      opacity: 0.45 + Math.random() * 0.20, // 0.45–0.65 — visible on light bg
     });
   }
   return blades;
@@ -76,8 +69,8 @@ function generateSparkles(count: number): Sparkle[] {
 }
 
 export function GrassFieldCSS() {
-  const blades = useMemo(() => generateBlades(60), []);
-  const sparkles = useMemo(() => generateSparkles(12), []);
+  const blades = useMemo(() => generateBlades(100), []);
+  const sparkles = useMemo(() => generateSparkles(15), []);
 
   return (
     <div
@@ -88,20 +81,20 @@ export function GrassFieldCSS() {
         background: 'radial-gradient(circle at 50% 30%, #FFF0F5 0%, #F9B7FF 40%, #7FFFD4 100%)',
       }}
     >
-      {/* Ground strip — subtle meadow base */}
+      {/* Ground strip */}
       <div
         style={{
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          height: '40%',
-          background: 'linear-gradient(to top, #C3FDB8 0%, #DBF9DB 30%, transparent 100%)',
-          opacity: 0.35,
+          height: '45%',
+          background: 'linear-gradient(to top, #C3FDB8 0%, #DBF9DB 35%, transparent 100%)',
+          opacity: 0.5,
         }}
       />
 
-      {/* Grass blades — each gets a unique animation name for per-blade sway */}
+      {/* Grass blades */}
       {blades.map((b) => (
         <div
           key={b.id}
@@ -146,7 +139,7 @@ export function GrassFieldCSS() {
         />
       ))}
 
-      {/* Per-blade keyframes — each blade gets its own sway angle */}
+      {/* Per-blade keyframes */}
       <style>{`
         ${blades.map((b) => `
           @keyframes grassSway${b.id} {
