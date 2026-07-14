@@ -3,7 +3,7 @@
 // Handles: Lobby → Game screen → MMORPG World routing
 // ============================================================
 
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Client }   from 'boardgame.io/react';
 import { SocketIO } from 'boardgame.io/multiplayer';
@@ -64,7 +64,15 @@ export function App() {
   const [storedMatch, setStoredMatch] = useState<MatchInfo | null>(null);
   const [parkedMatchKey, setParkedMatchKey] = useState('');
   const [leaving, setLeaving] = useState(false);
+  const [lobbyOpen, setLobbyOpen] = useState(false);
   const activeUserId = profile?.id ?? null;
+
+  // Stable guest id: generating it inline during render would hand a fresh
+  // id to MmorpgApp on every state change, re-initialising the whole Pixi
+  // world (character respawn) each time the lobby popup toggles.
+  const guestIdRef = useRef<string | null>(null);
+  if (!guestIdRef.current) guestIdRef.current = generateGuestId();
+  const worldGuestId = activeUserId || guestIdRef.current;
 
   useEffect(() => {
     if (isMobileView) {
@@ -280,23 +288,14 @@ export function App() {
   );
 
   // === MMORPG WORLD ROUTE ===
-  if (window.location.pathname === '/world') {
-    return (
-      <Suspense fallback={
-        <div style={{
-          position: 'fixed', inset: 0, background: '#1a1a2e',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#fff', fontSize: 24, fontFamily: 'sans-serif',
-        }}>
-          Entering teebai.flowers world...
-        </div>
-      }>
-        <MmorpgApp guestId={activeUserId || generateGuestId()} />
-      </Suspense>
-    );
-  }
+  // The world is the LANDING PAGE: '/' and '/world' both drop the player
+  // into teebai.flowers. Tapping the big minigame flower on the right edge
+  // pops up the card-game lobby over the world; joining a match takes over
+  // the screen (see the match branch below).
+  const pathname = window.location.pathname;
+  const worldRoute = pathname === '/' || pathname === '/world';
 
-  if (window.location.pathname === '/debug-layout') {
+  if (pathname === '/debug-layout') {
     return (
       <>
         <DebugLayoutPage />
@@ -305,7 +304,7 @@ export function App() {
     );
   }
 
-  if (window.location.pathname === '/debug-arena') {
+  if (pathname === '/debug-arena') {
     return (
       <>
         <DebugArenaPage />
@@ -339,48 +338,100 @@ export function App() {
     );
   }
 
-  if (!match) {
+  // Active card-game match — fullscreen, covers the world underneath.
+  if (match) {
     return (
       <>
-        <ErrorBoundary>
-          <Lobby onJoin={handleJoin} onSpectate={handleSpectate} storedMatch={storedMatch} />
-        </ErrorBoundary>
+        <MatchContext.Provider value={{
+          matchID:     match.matchID,
+          playerID:    match.playerID,
+          playerName:  match.playerName,
+          credentials: match.credentials,
+          server:      SERVER,
+          seatPresence,
+          onLeave:     () => void leaveMatch(),
+          isSpectator: false,
+        }}>
+          <ErrorBoundary>
+            <BgioClient
+              key={`${match.matchID}:${match.playerID}`}
+              matchID={match.matchID}
+              playerID={match.playerID}
+              credentials={match.credentials}
+              playerNames={playerNames}
+            />
+          </ErrorBoundary>
+        </MatchContext.Provider>
         {mobileToggle}
-        {bugButton}
         <ToastContainer />
       </>
     );
   }
 
+  // === WORLD LANDING ('/' and '/world') ===
+  if (worldRoute) {
+    return (
+      <>
+        <Suspense fallback={
+          <div style={{
+            position: 'fixed', inset: 0, background: '#1a1a2e',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontSize: 24, fontFamily: 'sans-serif',
+          }}>
+            Entering teebai.flowers world...
+          </div>
+        }>
+          <MmorpgApp guestId={worldGuestId} onOpenMinigame={() => setLobbyOpen(true)} />
+        </Suspense>
+
+        {/* Minigame lobby popup — opened by tapping the big portal flower */}
+        {lobbyOpen && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 10000,
+            overflow: 'auto', background: '#fdf0f5',
+          }}>
+            <ErrorBoundary>
+              <Lobby
+                onJoin={(matchID, playerID, playerName, credentials) => {
+                  setLobbyOpen(false);
+                  handleJoin(matchID, playerID, playerName, credentials);
+                }}
+                onSpectate={(matchID) => {
+                  setLobbyOpen(false);
+                  handleSpectate(matchID);
+                }}
+                storedMatch={storedMatch}
+              />
+            </ErrorBoundary>
+            <button
+              type="button"
+              onClick={() => setLobbyOpen(false)}
+              style={{
+                position: 'fixed', top: 14, right: 14, zIndex: 10001,
+                background: '#222', color: '#fff',
+                border: '1px solid rgba(255,255,255,0.25)',
+                borderRadius: 20, padding: '8px 16px', fontSize: 18,
+                cursor: 'pointer',
+              }}
+            >
+              ✕ Back to world
+            </button>
+            <ToastContainer />
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // === CARD-GAME LOBBY (direct entry — e.g. /cardgame) ===
   return (
     <>
-      <MatchContext.Provider value={{
-        matchID:     match.matchID,
-        playerID:    match.playerID,
-        playerName:  match.playerName,
-        credentials: match.credentials,
-        server:      SERVER,
-        seatPresence,
-        onLeave:     () => void leaveMatch(),
-        isSpectator: false,
-      }}>
-        <ErrorBoundary>
-          <BgioClient
-            key={`${match.matchID}:${match.playerID}`}
-            matchID={match.matchID}
-            playerID={match.playerID}
-            credentials={match.credentials}
-            playerNames={playerNames}
-          />
-        </ErrorBoundary>
-      </MatchContext.Provider>
+      <ErrorBoundary>
+        <Lobby onJoin={handleJoin} onSpectate={handleSpectate} storedMatch={storedMatch} />
+      </ErrorBoundary>
       {mobileToggle}
+      {bugButton}
       <ToastContainer />
     </>
   );
-}
-
-// Helper for guest ID generation in MMORPG route
-function generateGuestId(): string {
-  return 'guest_' + Math.random().toString(36).substring(2, 10);
 }
