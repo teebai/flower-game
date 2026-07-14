@@ -45,10 +45,10 @@ export const DEFAULT_CARD_ART: Partial<Record<CardArtKey, string>> = {
   'flower:rainbow': rainbowFlowerGif,
   'flower:triple_rainbow': tripleRainbowFlowerGif,
   'flower:divine': divineFlowerGif,
-  'flower:pink': pinkFlowerGif,
-  'flower:cyan': cyanFlowerGif,
-  'flower:magenta': magentaFlowerGif,
-  'flower:white': whiteFlowerGif,
+
+  // Fallbacks for flower colors without dedicated art
+  // Note: pink, cyan, magenta, white are not valid FlowerColor values
+  // and are omitted from the default art map.
 
   'power:wind': windGif,
   'power:divine_protection': divineProtectionGif,
@@ -67,7 +67,6 @@ export const DEFAULT_CARD_ART: Partial<Record<CardArtKey, string>> = {
   'power:great_reset': greatResetGif,
 };
 
-export const DEFAULT_CARD_ART_STORE: CardArtStoreData = {
-  version: 1,
-  arts: DEFAULT_CARD_ART,
-};
+export function hasCustomArt(store: CardArtStoreData, key: CardArtKey): boolean {
+  return typeof store[key] === 'string';
+}
