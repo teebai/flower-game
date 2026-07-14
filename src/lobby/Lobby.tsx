@@ -8,6 +8,7 @@ import { useAuth } from '../auth/AuthProvider';
 import type { MatchInfo } from '../auth/storage';
 import { SERVER, IDENTITY_SERVER, GAME } from '../config';
 import { GrassField } from '../board/GrassField';
+import { GrassFieldCSS } from './GrassFieldCSS';
 import { HowToPlay } from './HowToPlay';
 import {
   type DanmakuComment,
@@ -429,7 +430,7 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
 
   // ──── Auth helpers ──
 
-  async function handleJoin(
+  async function joinMatch(
     matchID: string,
     playerID: string,
     name: string,
@@ -520,7 +521,7 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
         ? { position: 'relative' }
         : { position: 'relative', background: 'radial-gradient(circle at 50% 30%, #93FFE8 0%, #C3FDB8 40%, #7ec8e3 100%)' }}
     >
-      {showBackground && (
+      {showBackground ? (
         <GrassField
           season="spring"
           scrollX={0}
@@ -529,6 +530,8 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
           cursorPos={cursorPos}
           className="lobby-grass"
         />
+      ) : (
+        <GrassFieldCSS />
       )}
       <div className="lobby-card" style={{ zIndex: 1 }}>
         {/* Hero banner with animated GIF */}
