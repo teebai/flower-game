@@ -435,3 +435,8 @@ export function App() {
     </>
   );
 }
+
+// Helper for guest ID generation in MMORPG route
+function generateGuestId(): string {
+  return 'guest_' + Math.random().toString(36).substring(2, 10);
+}
