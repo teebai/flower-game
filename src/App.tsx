@@ -384,14 +384,32 @@ export function App() {
           <MmorpgApp guestId={worldGuestId} onOpenMinigame={() => setLobbyOpen(true)} />
         </Suspense>
 
-        {/* Minigame lobby popup — opened by tapping the big portal flower */}
+        {/* Minigame lobby popup — opened by tapping the big portal flower.
+            GrassField is disabled here (showBackground={false}) because two
+            Pixi/Canvas apps on the same page fight for the same WebGL context.
+            A CSS radial-gradient replaces the grass background. */}
         {lobbyOpen && (
-          <div style={{
-            position: 'fixed', inset: 0, zIndex: 10000,
-            overflow: 'auto', background: '#fdf0f5',
-          }}>
+          <div
+            className="lobby-popup-overlay"
+            style={{
+              position: 'fixed', inset: 0, zIndex: 10000,
+              overflow: 'auto',
+              background: 'radial-gradient(circle at 50% 30%, #93FFE8 0%, #C3FDB8 40%, #7ec8e3 100%)',
+            }}
+          >
+            <style>{`
+              .lobby-popup-overlay .lobby-card {
+                background: rgba(255,255,255,0.82) !important;
+                border-radius: 22px !important;
+                box-shadow: 0 16px 40px rgba(80,50,70,0.12) !important;
+              }
+              .lobby-popup-overlay .lobby-panel {
+                background: rgba(255,255,255,0.88) !important;
+              }
+            `}</style>
             <ErrorBoundary>
               <Lobby
+                showBackground={false}
                 onJoin={(matchID, playerID, playerName, credentials) => {
                   setLobbyOpen(false);
                   handleJoin(matchID, playerID, playerName, credentials);
