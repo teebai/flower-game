@@ -24,16 +24,23 @@ import { ArtworkPopup } from './ui/ArtworkPopup';
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'wind-v2-steer-land-2026-07-13a';
+const BUILD_ID = 'world-landing-2026-07-14a';
 
 interface MmorpgAppProps {
   guestId?: string;
+  /** Called when the player taps the big minigame portal flower. */
+  onOpenMinigame?: () => void;
 }
 
-export function MmorpgApp({ guestId }: MmorpgAppProps) {
+export function MmorpgApp({ guestId, onOpenMinigame }: MmorpgAppProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Ref keeps the portal tap callback fresh without re-initialising Pixi.
+  const onOpenMinigameRef = useRef(onOpenMinigame);
+  useEffect(() => {
+    onOpenMinigameRef.current = onOpenMinigame;
+  }, [onOpenMinigame]);
 
   const initGame = useCallback(async (container: HTMLDivElement) => {
     // Create PixiJS Application
@@ -156,8 +163,15 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       orbitingArtworks.forEach((art, i) => art.bloom(i * 70));
     });
 
-    // Minigame portal
+    // Minigame portal — tapping the big flower opens the game lobby.
+    // lastPortalTap suppresses the click-to-move that the same press would
+    // otherwise trigger on the ground (same pattern as artwork taps).
+    let lastPortalTap = 0;
     const minigamePortal = new PortalFlower(2700, 1500, 'minigame');
+    minigamePortal.enableInteraction(() => {
+      lastPortalTap = performance.now();
+      onOpenMinigameRef.current?.();
+    });
     worldContainer.addChild(minigamePortal);
 
     // Shop portal
@@ -178,6 +192,8 @@ export function MmorpgApp({ guestId }: MmorpgAppProps) {
       // Ignore the click that immediately follows a wind landing (the
       // press that triggered the wind resolves as a click on pointerup).
       if (performance.now() - lastWindEnd < 350) return;
+      // Ignore the click that just opened a portal (lobby popup).
+      if (performance.now() - lastPortalTap < 300) return;
       const worldPos = camera.screenToWorld(e.clientX, e.clientY);
       controller.handleClick(worldPos.x, worldPos.y);
     };
