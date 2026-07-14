@@ -385,28 +385,17 @@ export function App() {
         </Suspense>
 
         {/* Minigame lobby popup — opened by tapping the big portal flower.
-            GrassField is disabled here (showBackground={false}) because two
-            Pixi/Canvas apps on the same page fight for the same WebGL context.
-            A CSS radial-gradient replaces the grass background. */}
+            Renders over the MMORPG world. The CSS-only GrassField (via
+            GrassFieldCSS) provides the animated meadow background without
+            conflicting with the MMORPG's WebGL context. */}
         {lobbyOpen && (
           <div
             className="lobby-popup-overlay"
             style={{
               position: 'fixed', inset: 0, zIndex: 10000,
               overflow: 'auto',
-              background: 'radial-gradient(circle at 50% 30%, #93FFE8 0%, #C3FDB8 40%, #7ec8e3 100%)',
             }}
           >
-            <style>{`
-              .lobby-popup-overlay .lobby-card {
-                background: rgba(255,255,255,0.82) !important;
-                border-radius: 22px !important;
-                box-shadow: 0 16px 40px rgba(80,50,70,0.12) !important;
-              }
-              .lobby-popup-overlay .lobby-panel {
-                background: rgba(255,255,255,0.88) !important;
-              }
-            `}</style>
             <ErrorBoundary>
               <Lobby
                 showBackground={false}
@@ -426,10 +415,10 @@ export function App() {
               onClick={() => setLobbyOpen(false)}
               style={{
                 position: 'fixed', top: 14, right: 14, zIndex: 10001,
-                background: '#222', color: '#fff',
+                background: 'rgba(0,0,0,0.4)', color: '#fff',
                 border: '1px solid rgba(255,255,255,0.25)',
                 borderRadius: 20, padding: '8px 16px', fontSize: 18,
-                cursor: 'pointer',
+                cursor: 'pointer', backdropFilter: 'blur(4px)',
               }}
             >
               ✕ Back to world
