@@ -212,7 +212,7 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
   const [roomName, setRoomName] = useState('');
   const [matchID, setMatchID] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
-  const [joinByIdOpen, setJoinByIdOpen] = useState(false); // TODO: re-implement Join by ID UI
+  const [joinByIdOpen, setJoinByIdOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
@@ -394,7 +394,12 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
     }
   }
 
-  async function loadRooms() {
+  /**
+   * Load room list from server.
+   * @param silent - If true, don't overwrite existing user-facing errors.
+   *                 Used by background polling to avoid wiping create/join errors.
+   */
+  async function loadRooms(silent = false) {
     setLoadingRooms(true);
     try {
       const res = await fetch(`${SERVER}/rooms`);
@@ -402,7 +407,10 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
       const data = await res.json() as LobbyListResponse;
       setRooms(data.rooms ?? []);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (!silent) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+      // On silent failure, just keep the existing room list (stale is better than empty)
     } finally {
       setLoadingRooms(false);
     }
@@ -453,9 +461,9 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
   }
 
   useEffect(() => {
-    void loadRooms();
+    void loadRooms(false); // first load: show errors
     const interval = window.setInterval(() => {
-      void loadRooms();
+      void loadRooms(true); // background polls: silent, don't overwrite user errors
     }, 5000);
     return () => window.clearInterval(interval);
   }, []);
@@ -510,9 +518,6 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
       'content',
       'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
     );
-
-    // gesturestart prevention is now global in App.tsx \u2014 removed from here
-    // to avoid double handlers and cleanup conflicts when navigating.
 
     return () => {
       if (viewport) viewport.setAttribute('content', previousViewport);
@@ -646,7 +651,6 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
             );
             return;
           }
-          // Bad/missing response from identity server: fall through to game server
           console.warn('[create] identity server returned unusable response, falling back', {
             status: trustedRes.status,
             hasData: !!trustedData,
@@ -721,7 +725,7 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
     } catch (e: unknown) {
       console.error('[join] failed:', e);
       setError(e instanceof Error ? e.message : String(e));
-      void loadRooms();
+      void loadRooms(true); // silent refresh after join failure
     } finally {
       setLoading(false);
     }
@@ -911,7 +915,7 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
                   onChange={e => { setProfileFeedback(''); setProfileDisplayName(e.target.value); }}
                   placeholder="USERNAME"
                   className="lobby-auth-name-input"
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleSaveProfileName(); }}}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleSaveProfileName(); }} }
                 />
                 <button
                   type="button"
@@ -945,7 +949,7 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
                     value={profileDisplayName}
                     onChange={e => { setProfileFeedback(''); setProfileDisplayName(e.target.value); }}
                     onBlur={() => setEditingName(false)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); setEditingName(false); void handleSaveProfileName(); }}}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); setEditingName(false); void handleSaveProfileName(); }} }
                     placeholder="USERNAME"
                     className="lobby-auth-name-input"
                   />
@@ -1144,7 +1148,7 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
                       onChange={e => setRoomName(e.target.value)}
                       placeholder="Room name"
                       className="lobby-create-form-popup__input"
-                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void createMatch(); }}}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void createMatch(); }} }
                     />
                     <button
                       type="button"
@@ -1190,7 +1194,7 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
 
               <div className="lobby-rooms-header">
                 <button
-                  onClick={() => void loadRooms()}
+                  onClick={() => void loadRooms(false)}
                   disabled={loadingRooms}
                   className="lobby-refresh-button"
                 >
@@ -1366,82 +1370,4 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
               <div className="lobby-leaderboard-me">
                 <div>
                   <div className="lobby-field-label">Your Record</div>
-                  <div className="lobby-leaderboard-me__name">{myStats.displayName}</div>
-                </div>
-                <div className="lobby-leaderboard-me__stats">
-                  <span>{myStats.gamesWon} wins</span>
-                  <span>{myStats.gamesPlayed} played</span>
-                  <span>{myStats.flowersPlanted} flowers</span>
-                  <span>{formatWinRate(myStats.winRate)} win rate</span>
-                </div>
-              </div>
-            )}
-
-            <div className="lobby-leaderboard-list lobby-leaderboard-list--page">
-              <div className="lobby-leaderboard-columns" aria-hidden="true">
-                <span>Rank</span>
-                <span>Player</span>
-                <span>Wins</span>
-                <span>Played</span>
-                <span>Flowers</span>
-                <span>Rate</span>
-              </div>
-              {leaderboardError && (
-                <div className="lobby-inline-feedback">{leaderboardError}</div>
-              )}
-              {!leaderboardError && leaderboard.length === 0 && !leaderboardLoading && (
-                <div className="lobby-empty-state">
-                  No completed matches yet. The board will populate after the first recorded win.
-                </div>
-              )}
-
-              {leaderboard.map(entry => (
-                <div
-                  key={entry.accountId ?? `${entry.rank}-${entry.displayName}`}
-                  className={`lobby-leaderboard-row${highlightedLeaderboardEntry?.accountId === entry.accountId ? ' is-current' : ''}`}
-                >
-                  <div className="lobby-leaderboard-rank">#{entry.rank}</div>
-                  <div className="lobby-leaderboard-name">{entry.displayName}</div>
-                  <div className="lobby-leaderboard-stat">{entry.gamesWon}</div>
-                  <div className="lobby-leaderboard-stat">{entry.gamesPlayed}</div>
-                  <div className="lobby-leaderboard-stat">{entry.flowersPlanted}</div>
-                  <div className="lobby-leaderboard-stat">{formatWinRate(entry.winRate)}</div>
-                  <div className="lobby-leaderboard-lastplay">
-                    Last match {formatRelativeDate(entry.lastPlayedAt)}
-                  </div>
-                  <div className="lobby-leaderboard-meta">
-                    {entry.lastWonAt ? `Last win ${formatRelativeDate(entry.lastWonAt)}` : 'No win yet'}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {error && (
-          <div className="lobby-error-banner">
-            {error}
-          </div>
-        )}
-      </div>
-
-      {/* ── Danmaku floating chat overlay ── */}
-      <div className="danmaku-container" aria-hidden="true">
-        {danmakuComments.map(comment => (
-          <div
-            key={comment.id}
-            className="danmaku-comment"
-            style={{
-              '--danmaku-lane': comment.lane,
-              '--danmaku-duration': `${comment.duration}ms`,
-              '--danmaku-color': comment.color,
-              '--danmaku-top': `${DANMAKU_TOP_OFFSET + comment.lane * DANMAKU_LANE_HEIGHT}px`,
-            } as React.CSSProperties}
-          >
-            {comment.text}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+                  <div class connection here due to length... (truncated)
