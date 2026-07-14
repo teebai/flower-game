@@ -1,1 +1,68 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="350" height="350" viewBox="0 0 350 350"><image width="350" height="350" href="data:image/png;base64,REDACTED_SEE_NEXT_PUSH"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="350" height="350" viewBox="0 0 350 350">
+  <defs>
+    <radialGradient id="shield" cx="50%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#FFF7D6"/>
+      <stop offset="70%" stop-color="#F9E29A"/>
+      <stop offset="100%" stop-color="#F0C75E"/>
+    </radialGradient>
+  </defs>
+  <rect width="350" height="350" fill="#FFFFFF"/>
+  <!-- light rays -->
+  <g stroke="#E8C65A" stroke-width="5" stroke-linecap="round" opacity="0.85">
+    <line x1="175" y1="18" x2="175" y2="34"/>
+    <line x1="245" y1="34" x2="238" y2="49"/>
+    <line x1="295" y1="80" x2="281" y2="90"/>
+    <line x1="312" y1="150" x2="296" y2="152"/>
+    <line x1="295" y1="220" x2="281" y2="210"/>
+    <line x1="245" y1="266" x2="238" y2="251"/>
+    <line x1="105" y1="266" x2="112" y2="251"/>
+    <line x1="55" y1="220" x2="69" y2="210"/>
+    <line x1="38" y1="150" x2="54" y2="152"/>
+    <line x1="55" y1="80" x2="69" y2="90"/>
+    <line x1="105" y1="34" x2="112" y2="49"/>
+  </g>
+  <!-- shield bubble -->
+  <circle cx="175" cy="150" r="118" fill="url(#shield)" stroke="#C9A227" stroke-width="7"/>
+  <circle cx="175" cy="150" r="118" fill="none" stroke="#FFFFFF" stroke-width="3" opacity="0.55"/>
+  <path d="M105 92 A96 96 0 0 1 196 60" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity="0.8"/>
+  <!-- sparkles -->
+  <g fill="#F4D35E" stroke="#C9A227" stroke-width="2.5" stroke-linejoin="round">
+    <path d="M264 72 l5 11 11 5 -11 5 -5 11 -5 -11 -11 -5 11 -5 z"/>
+    <path d="M96 188 l3.5 8 8 3.5 -8 3.5 -3.5 8 -3.5 -8 -8 -3.5 8 -3.5 z"/>
+    <path d="M258 196 l3 7 7 3 -7 3 -3 7 -3 -7 -7 -3 7 -3 z"/>
+  </g>
+  <!-- halo -->
+  <ellipse cx="175" cy="76" rx="32" ry="9" fill="none" stroke="#E3B93C" stroke-width="7"/>
+  <ellipse cx="175" cy="76" rx="32" ry="9" fill="none" stroke="#FFF3C4" stroke-width="2.5"/>
+  <!-- daisy: 8 petals, each a tall ellipse rotated around the center -->
+  <g fill="#FFFFFF" stroke="#3A3A3A" stroke-width="4" stroke-linejoin="round">
+    <ellipse cx="175" cy="108" rx="13" ry="26"/>
+    <ellipse cx="175" cy="108" rx="13" ry="26" transform="rotate(45 175 138)"/>
+    <ellipse cx="175" cy="108" rx="13" ry="26" transform="rotate(90 175 138)"/>
+    <ellipse cx="175" cy="108" rx="13" ry="26" transform="rotate(135 175 138)"/>
+    <ellipse cx="175" cy="108" rx="13" ry="26" transform="rotate(180 175 138)"/>
+    <ellipse cx="175" cy="108" rx="13" ry="26" transform="rotate(225 175 138)"/>
+    <ellipse cx="175" cy="108" rx="13" ry="26" transform="rotate(270 175 138)"/>
+    <ellipse cx="175" cy="108" rx="13" ry="26" transform="rotate(315 175 138)"/>
+    <circle cx="175" cy="138" r="19" fill="#F4C430"/>
+  </g>
+  <!-- smiley face -->
+  <circle cx="168.5" cy="135" r="2.4" fill="#3A3A3A"/>
+  <circle cx="181.5" cy="135" r="2.4" fill="#3A3A3A"/>
+  <path d="M168 141 q7 7 14 0" fill="none" stroke="#3A3A3A" stroke-width="2.6" stroke-linecap="round"/>
+  <circle cx="163" cy="140" r="2.6" fill="#F2A6A6" opacity="0.75"/>
+  <circle cx="187" cy="140" r="2.6" fill="#F2A6A6" opacity="0.75"/>
+  <!-- stem + leaves -->
+  <path d="M175 157 C172 182 174 206 176 232" fill="none" stroke="#5A8A3C" stroke-width="7" stroke-linecap="round"/>
+  <path d="M174 190 C160 184 148 188 142 202 C158 206 170 202 174 190 z" fill="#7CB342" stroke="#3A3A3A" stroke-width="3.5"/>
+  <path d="M176 204 C190 198 202 202 208 216 C192 220 180 216 176 204 z" fill="#7CB342" stroke="#3A3A3A" stroke-width="3.5"/>
+  <!-- ground -->
+  <ellipse cx="176" cy="240" rx="44" ry="8" fill="#A9C97F" opacity="0.8"/>
+  <!-- banner -->
+  <g stroke="#C9A227" stroke-width="5" stroke-linejoin="round">
+    <path d="M26 262 L56 276 L56 314 L26 328 L38 295 z" fill="#FFF7D6"/>
+    <path d="M324 262 L294 276 L294 314 L324 328 L312 295 z" fill="#FFF7D6"/>
+    <rect x="48" y="272" width="254" height="46" rx="12" fill="#FFFDF2"/>
+  </g>
+  <text x="175" y="302" font-family="Trebuchet MS, Comic Sans MS, Verdana, sans-serif" font-size="23" font-weight="bold" fill="#B08D2A" text-anchor="middle">DIVINE PROTECTION</text>
+</svg>
