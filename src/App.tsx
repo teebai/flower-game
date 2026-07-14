@@ -392,8 +392,9 @@ export function App() {
           <div
             className="lobby-popup-overlay"
             style={{
-              position: 'fixed', inset: 0, zIndex: 10000,
-              overflow: 'auto',
+              position: 'fixed',
+              inset: 0,
+              zIndex: 10000,
             }}
           >
             <ErrorBoundary>
