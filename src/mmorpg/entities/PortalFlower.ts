@@ -9,7 +9,7 @@
  * an interact prompt that appears when the player is in range.
  */
 
-import { Container, Graphics } from 'pixi.js';
+import { Circle, Container, Graphics } from 'pixi.js';
 
 export type PortalType = 'minigame' | 'shop';
 
@@ -133,5 +133,18 @@ export class PortalFlower extends Container {
 
   onInteract(): void {
     this.emit('interact', this.type);
+  }
+
+  /**
+   * Make the portal tappable. Unlike the gallery flower this is NOT a
+   * one-shot latch — the player can open the portal any number of times.
+   * The hit area is deliberately generous (r 70) so the small flower is
+   * easy to tap on a phone screen.
+   */
+  enableInteraction(onTap: () => void): void {
+    this.eventMode = 'static';
+    this.cursor = 'pointer';
+    this.hitArea = new Circle(0, 0, 70);
+    this.on('pointertap', () => onTap());
   }
 }
