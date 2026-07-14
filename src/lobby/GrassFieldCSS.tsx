@@ -41,15 +41,15 @@ function generateBlades(count: number): Blade[] {
       const baseY = r / rows * 100;
       blades.push({
         id: id++,
-        x: baseX + (Math.random() - 0.5) * (80 / cols), // jitter
+        x: baseX + (Math.random() - 0.5) * (80 / cols),
         y: baseY + (Math.random() - 0.5) * (80 / rows),
-        h: 18 + Math.random() * 28,      // 18–46 px
-        w: 3 + Math.random() * 4,        // 3–7 px
+        h: 18 + Math.random() * 28,
+        w: 3 + Math.random() * 4,
         delay: Math.random() * -4,
-        dur: 2.0 + Math.random() * 1.8,  // 2.0–3.8 s
+        dur: 2.0 + Math.random() * 1.8,
         color: BLADE_COLORS[id % BLADE_COLORS.length],
-        sway: 3 + Math.random() * 5,     // 3–8 deg
-        opacity: 0.55 + Math.random() * 0.25, // 0.55–0.80
+        sway: 3 + Math.random() * 5,
+        opacity: 0.55 + Math.random() * 0.25,
         phase: Math.random() * Math.PI * 2,
       });
     }
@@ -86,10 +86,16 @@ export function GrassFieldCSS() {
     };
   }, []);
 
-  // Interaction loop: push blades away from cursor via direct DOM
+  // Interaction loop: spring-physics cursor push (matches original GrassField)
+  // Each blade has velocity + damping for graceful, non-instant response.
   useEffect(() => {
     const PUSH_RADIUS = 120;
-    const MAX_ROTATION = 35; // degrees
+    const MAX_ROTATION = 22;   // gentler max lean
+    const SPRING_K = 0.06;     // stiffness
+    const DAMPING = 0.90;      // velocity decay per frame
+
+    const pushCurrent = new Float32Array(blades.length);
+    const pushVel = new Float32Array(blades.length);
 
     const tick = () => {
       const cp = cursorRef.current;
@@ -101,8 +107,7 @@ export function GrassFieldCSS() {
         const el = bladeRefs.current[i];
         if (!el) continue;
 
-        let pushAngle = 0;
-
+        let targetAngle = 0;
         if (cp && vw > 0 && vh > 0) {
           const bx = (b.x / 100) * vw;
           const by = (b.y / 100) * vh;
@@ -111,19 +116,18 @@ export function GrassFieldCSS() {
           const dist = Math.hypot(dx, dy);
 
           if (dist < PUSH_RADIUS && dist > 1) {
-            const strength = 1 - dist / PUSH_RADIUS;
-            // Push angle: away from cursor (in degrees)
+            const strength = (1 - dist / PUSH_RADIUS) ** 2;
             const awayAngle = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
-            pushAngle = awayAngle * strength * (MAX_ROTATION / 90);
+            targetAngle = awayAngle * strength * (MAX_ROTATION / 90);
           }
         }
 
-        // Combine sway (from CSS animation) + push (from cursor)
-        // We set a CSS custom property the keyframe can reference, or
-        // we directly set the base rotation on the element.
-        // The animation handles the swaying; we add the push offset
-        // via a static rotation applied as a CSS variable.
-        el.style.setProperty('--push', `${pushAngle}deg`);
+        // Damped spring: vel += (target - current) * K; vel *= damping; current += vel
+        pushVel[i] += (targetAngle - pushCurrent[i]) * SPRING_K;
+        pushVel[i] *= DAMPING;
+        pushCurrent[i] += pushVel[i];
+
+        el.style.setProperty('--push', `${pushCurrent[i]}deg`);
       }
 
       rafRef.current = requestAnimationFrame(tick);
@@ -141,10 +145,9 @@ export function GrassFieldCSS() {
         inset: 0,
         zIndex: 0,
         background: 'radial-gradient(circle at 50% 30%, #FFF0F5 0%, #F9B7FF 40%, #7FFFD4 100%)',
-        pointerEvents: 'auto', // capture pointer for interaction
+        pointerEvents: 'auto',
       }}
     >
-      {/* Ground strip at bottom */}
       <div
         style={{
           position: 'absolute',
@@ -158,7 +161,6 @@ export function GrassFieldCSS() {
         }}
       />
 
-      {/* Grass blades — full viewport distribution */}
       {blades.map((b, i) => (
         <div
           key={b.id}
@@ -174,20 +176,17 @@ export function GrassFieldCSS() {
             borderRadius: `${b.w / 2}px ${b.w / 2}px 0 0`,
             background: b.color,
             transformOrigin: 'bottom center',
-            // CSS animation handles sway; --push is set by rAF loop
             animation: `grassSway${b.id} ${b.dur}s ease-in-out infinite alternate`,
             animationDelay: `${b.delay}s`,
             opacity: b.opacity,
             zIndex: 1,
             pointerEvents: 'none',
             willChange: 'transform',
-            // Default --push, overridden by rAF
             rotate: 'var(--push, 0deg)',
           } as React.CSSProperties}
         />
       ))}
 
-      {/* Per-blade keyframes */}
       <style>{`
         ${blades.map((b) => `
           @keyframes grassSway${b.id} {
