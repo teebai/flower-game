@@ -34,9 +34,9 @@ interface Props {
   onJoin: (matchID: string, playerID: string, playerName: string, credentials: string) => void;
   onSpectate: (matchID: string) => void;
   storedMatch: MatchInfo | null;
-  /** When false the animated grass background is skipped (e.g. lobby
-   *  rendered as a popup over the MMORPG world — two Pixi/Canvas apps
-   *  would fight for the same WebGL context). */
+  /** When false the Pixi GrassField canvas is skipped and the CSS-only
+   *  GrassFieldCSS is used instead (lobby as popup over MMORPG world
+   *  where two WebGL contexts would conflict). */
   showBackground?: boolean;
 }
 
@@ -517,9 +517,7 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
       className="lobby-shell"
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
-      style={showBackground
-        ? { position: 'relative' }
-        : { position: 'relative', background: 'radial-gradient(circle at 50% 30%, #93FFE8 0%, #C3FDB8 40%, #7ec8e3 100%)' }}
+      style={{ position: 'relative' }}
     >
       {showBackground ? (
         <GrassField
