@@ -17,7 +17,7 @@ import whiteFlowerGif from '../assets/flowers/yellow-flower.gif';
 
 // Power cards
 import windGif from '../assets/powers/wind.gif';
-import divineProtectionGif from '../assets/powers/divine_protection.png';
+import divineProtectionGif from '../assets/powers/divine_protection.svg';
 import bugGif from '../assets/powers/bug.png';
 import beeGif from '../assets/powers/bee.png';
 import doubleHappinessGif from '../assets/powers/double_happiness.png';
@@ -45,10 +45,10 @@ export const DEFAULT_CARD_ART: Partial<Record<CardArtKey, string>> = {
   'flower:rainbow': rainbowFlowerGif,
   'flower:triple_rainbow': tripleRainbowFlowerGif,
   'flower:divine': divineFlowerGif,
-
-  // Fallbacks for flower colors without dedicated art
-  // Note: pink, cyan, magenta, white are not valid FlowerColor values
-  // and are omitted from the default art map.
+  'flower:pink': pinkFlowerGif,
+  'flower:cyan': cyanFlowerGif,
+  'flower:magenta': magentaFlowerGif,
+  'flower:white': whiteFlowerGif,
 
   'power:wind': windGif,
   'power:divine_protection': divineProtectionGif,
@@ -67,6 +67,7 @@ export const DEFAULT_CARD_ART: Partial<Record<CardArtKey, string>> = {
   'power:great_reset': greatResetGif,
 };
 
-export function hasCustomArt(store: CardArtStoreData, key: CardArtKey): boolean {
-  return typeof store[key] === 'string';
-}
+export const DEFAULT_CARD_ART_STORE: CardArtStoreData = {
+  version: 1,
+  arts: DEFAULT_CARD_ART,
+};
