@@ -74,11 +74,10 @@ export function GrassFieldCSS() {
   return (
     <div
       style={{
-        position: 'absolute',
+        position: 'fixed',
         inset: 0,
-        overflow: 'hidden',
         zIndex: 0,
-        background: 'radial-gradient(circle at 50% 30%, #93FFE8 0%, #C3FDB8 40%, #7ec8e3 100%)',
+        background: 'radial-gradient(circle at 50% 30%, #FFF0F5 0%, #F9B7FF 40%, #7FFFD4 100%)',
       }}
     >
       {/* Ground strip at the bottom — darker green meadow */}
@@ -89,7 +88,7 @@ export function GrassFieldCSS() {
           left: 0,
           right: 0,
           height: '35%',
-          background: 'linear-gradient(to top, #5cb85c 0%, #7ec87e 40%, transparent 100%)',
+          background: 'linear-gradient(to top, #4ecca3 0%, #C3FDB8 40%, transparent 100%)',
           opacity: 0.55,
         }}
       />
