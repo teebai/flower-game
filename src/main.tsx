@@ -9,15 +9,28 @@ import './styles.css';
 
 import AssetPreloader from './components/AssetPreloader';
 
-const root = document.getElementById('root')!;
-createRoot(root).render(
-  <StrictMode>
-    <AssetPreloader onReady={() => {}}>
-      <AuthProvider>
-        <CardArtProvider>
-          <App />
-        </CardArtProvider>
-      </AuthProvider>
-    </AssetPreloader>
-  </StrictMode>
-);
+// Enable MSW mock API server in development (no real backend needed)
+async function enableMocking() {
+  if (import.meta.env.DEV) {
+    const { worker } = await import('./mocks/browser');
+    return worker.start({
+      onUnhandledRequest: 'bypass', // let non-mocked requests through
+    });
+  }
+  return Promise.resolve();
+}
+
+enableMocking().then(() => {
+  const root = document.getElementById('root')!;
+  createRoot(root).render(
+    <StrictMode>
+      <AssetPreloader onReady={() => {}}>
+        <AuthProvider>
+          <CardArtProvider>
+            <App />
+          </CardArtProvider>
+        </AuthProvider>
+      </AssetPreloader>
+    </StrictMode>
+  );
+});
