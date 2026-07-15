@@ -1,0 +1,257 @@
+/**
+ * character-creation.css — Styles for the Character Creation screen.
+ *
+ * Spring pink aesthetic matching the lobby. Full viewport, centered card
+ * with character preview, name input, and Login/Guest buttons.
+ */
+
+.character-creation {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  background: radial-gradient(circle at 50% 30%, #FFF0F5 0%, #F9B7FF 40%, #7FFFD4 100%);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+/* Animated grass blades at the bottom */
+.cc-bg {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cc-grass-blade {
+  position: absolute;
+  bottom: 0;
+  width: 3px;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(to top, #C3FDB8, #DBF9DB);
+  opacity: 0.35;
+  animation: ccGrassSway 2.5s ease-in-out infinite alternate;
+  transform-origin: bottom center;
+}
+
+@keyframes ccGrassSway {
+  0% { transform: rotate(-4deg) scaleY(1); }
+  100% { transform: rotate(4deg) scaleY(1.03); }
+}
+
+/* Main card */
+.cc-card {
+  position: relative;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 40px 48px;
+  max-width: 420px;
+  width: 90vw;
+  box-shadow:
+    0 8px 32px rgba(180, 120, 160, 0.15),
+    0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  animation: ccCardIn 0.5s ease-out;
+}
+
+@keyframes ccCardIn {
+  0% { opacity: 0; transform: translateY(20px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Character preview SVG */
+.cc-preview {
+  width: 120px;
+  height: 96px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(124, 252, 155, 0.2) 0%, transparent 70%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: ccFloat 3s ease-in-out infinite;
+}
+
+.cc-char-svg {
+  width: 100px;
+  height: 80px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08));
+}
+
+@keyframes ccFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* Title */
+.cc-title {
+  font-size: 28px;
+  font-weight: 800;
+  color: #5a3d5c;
+  margin: 0;
+  text-align: center;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+  min-height: 34px;
+  transition: color 0.3s;
+}
+
+.cc-subtitle {
+  font-size: 14px;
+  color: #9a7a8a;
+  margin: -12px 0 0;
+  text-align: center;
+}
+
+/* Name input */
+.cc-input-wrap {
+  width: 100%;
+  position: relative;
+}
+
+.cc-input {
+  width: 100%;
+  padding: 14px 18px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #5a3d5c;
+  background: rgba(255, 255, 255, 0.85);
+  border: 2px solid rgba(249, 183, 255, 0.3);
+  border-radius: 14px;
+  outline: none;
+  text-align: center;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
+}
+
+.cc-input::placeholder {
+  color: #c8a8b8;
+  font-weight: 400;
+}
+
+.cc-input:focus {
+  border-color: #F9B7FF;
+  box-shadow: 0 0 0 4px rgba(249, 183, 255, 0.15);
+}
+
+.cc-input--error {
+  border-color: #FF6B6B;
+}
+
+.cc-input--error:focus {
+  box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.15);
+}
+
+.cc-error {
+  display: block;
+  text-align: center;
+  color: #FF6B6B;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+/* Buttons */
+.cc-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.cc-btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 14px;
+  border: none;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  text-align: center;
+}
+
+.cc-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.cc-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.cc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cc-btn--guest {
+  background: linear-gradient(135deg, #7CFC9B, #5FE87F);
+  color: #1a4a2a;
+  box-shadow: 0 4px 12px rgba(124, 252, 155, 0.3);
+}
+
+.cc-btn--guest:hover:not(:disabled) {
+  box-shadow: 0 6px 16px rgba(124, 252, 155, 0.4);
+}
+
+.cc-btn--login {
+  background: linear-gradient(135deg, #F9B7FF, #E8A0F0);
+  color: #5a2050;
+  box-shadow: 0 4px 12px rgba(249, 183, 255, 0.3);
+}
+
+.cc-btn--login:hover:not(:disabled) {
+  box-shadow: 0 6px 16px rgba(249, 183, 255, 0.4);
+}
+
+/* Hint text */
+.cc-hint {
+  font-size: 12px;
+  color: #b8a0b0;
+  text-align: center;
+  margin: 0;
+  line-height: 1.5;
+  max-width: 320px;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 480px) {
+  .cc-card {
+    padding: 28px 24px;
+    border-radius: 20px;
+    gap: 16px;
+  }
+
+  .cc-title {
+    font-size: 22px;
+  }
+
+  .cc-input {
+    font-size: 16px;
+    padding: 12px 14px;
+  }
+
+  .cc-btn {
+    font-size: 15px;
+    padding: 12px;
+  }
+
+  .cc-preview {
+    width: 100px;
+    height: 80px;
+  }
+
+  .cc-char-svg {
+    width: 80px;
+    height: 64px;
+  }
+}
