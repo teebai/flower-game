@@ -1,6 +1,6 @@
 // ============================================================
 // FLOWER GAME — APP ROOT
-// Handles: Lobby → Game screen → MMORPG World routing
+// Handles: Character Creation → World → Lobby Popup → Game routing
 // ============================================================
 
 import { useEffect, useRef, useState, lazy, Suspense } from 'react';
@@ -13,6 +13,7 @@ import { SERVER } from './config';
 import { FlowerBoard } from './board/FlowerBoard';
 import { Lobby } from './lobby/Lobby';
 import { MatchContext, type MatchSeatPresence } from './matchContext';
+import { CharacterCreation } from './mmorpg/CharacterCreation';
 import DebugLayoutPage from './DebugLayoutPage';
 import DebugArenaPage from './DebugArenaPage';
 import { ToastContainer } from './components/ToastContainer';
@@ -50,6 +51,15 @@ function storedMatchKey(match: MatchInfo | null, userId: string | null): string 
 }
 
 const MOBILE_VIEW_KEY = 'flower-game:mobile-view';
+const PLAYER_NAME_KEY = 'flower-game:player-name';
+
+function loadPlayerName(): string {
+  try {
+    return localStorage.getItem(PLAYER_NAME_KEY) || '';
+  } catch {
+    return '';
+  }
+}
 
 export function App() {
   const { loading: authLoading, profile } = useAuth();
@@ -57,6 +67,7 @@ export function App() {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(MOBILE_VIEW_KEY) === '1';
   });
+  const [playerName, setPlayerName] = useState(loadPlayerName);
   const [match, setMatch] = useState<MatchInfo | null>(null);
   const [spectatingMatchID, setSpectatingMatchID] = useState<string | null>(null);
   const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
@@ -73,6 +84,14 @@ export function App() {
   const guestIdRef = useRef<string | null>(null);
   if (!guestIdRef.current) guestIdRef.current = generateGuestId();
   const worldGuestId = activeUserId || guestIdRef.current;
+
+  // If user is logged in and has a display name, sync it
+  useEffect(() => {
+    if (profile?.displayName && !playerName) {
+      setPlayerName(profile.displayName);
+      try { localStorage.setItem(PLAYER_NAME_KEY, profile.displayName); } catch { /* ignore */ }
+    }
+  }, [profile?.displayName]);
 
   useEffect(() => {
     if (isMobileView) {
@@ -165,10 +184,10 @@ export function App() {
           const id = String(p.id);
           const fallbackName = `Player ${Number(id) + 1}`;
           const trimmedName = p.name?.trim() || '';
-          const name = trimmedName || fallbackName;
-          next[id] = name;
+          const nm = trimmedName || fallbackName;
+          next[id] = nm;
           nextPresence[id] = {
-            name,
+            name: nm,
             occupied: Boolean(trimmedName),
           };
         }
@@ -287,30 +306,14 @@ export function App() {
     </a>
   );
 
-  // === MMORPG WORLD ROUTE ===
-  // The world is the LANDING PAGE: '/' and '/world' both drop the player
-  // into teebai.flowers. Tapping the big minigame flower on the right edge
-  // pops up the card-game lobby over the world; joining a match takes over
-  // the screen (see the match branch below).
   const pathname = window.location.pathname;
-  const worldRoute = pathname === '/' || pathname === '/world';
 
+  // Debug routes
   if (pathname === '/debug-layout') {
-    return (
-      <>
-        <DebugLayoutPage />
-        {mobileToggle}
-      </>
-    );
+    return (<> <DebugLayoutPage /> {mobileToggle} </>);
   }
-
   if (pathname === '/debug-arena') {
-    return (
-      <>
-        <DebugArenaPage />
-        {mobileToggle}
-      </>
-    );
+    return (<> <DebugArenaPage /> {mobileToggle} </>);
   }
 
   // Spectator mode
@@ -338,7 +341,7 @@ export function App() {
     );
   }
 
-  // Active card-game match — fullscreen, covers the world underneath.
+  // Active card-game match
   if (match) {
     return (
       <>
@@ -368,7 +371,28 @@ export function App() {
     );
   }
 
-  // === WORLD LANDING ('/' and '/world') ===
+  // ============================================================
+  // CHARACTER CREATION — First-time entry
+  // If the player hasn't set a name yet, show the creation screen.
+  // After name is set, they enter the world at '/world'.
+  // ============================================================
+  if (!playerName) {
+    return (
+      <CharacterCreation
+        onEnterWorld={(name) => {
+          setPlayerName(name);
+          // Redirect to /world after name is set
+          window.history.replaceState({}, '', '/world');
+        }}
+      />
+    );
+  }
+
+  // ============================================================
+  // MMORPG WORLD — The main game world
+  // Entry: after character creation OR direct /world
+  // ============================================================
+  const worldRoute = pathname === '/' || pathname === '/world';
   if (worldRoute) {
     return (
       <>
@@ -381,25 +405,23 @@ export function App() {
             Entering teebai.flowers world...
           </div>
         }>
-          <MmorpgApp guestId={worldGuestId} onOpenMinigame={() => setLobbyOpen(true)} />
+          <MmorpgApp
+            guestId={worldGuestId}
+            playerName={playerName}
+            onOpenMinigame={() => setLobbyOpen(true)}
+          />
         </Suspense>
 
-        {/* Minigame lobby popup — opened by tapping the big portal flower.
-            Renders over the MMORPG world. The CSS-only GrassField (via
-            GrassFieldCSS) provides the animated meadow background without
-            conflicting with the MMORPG's WebGL context. */}
+        {/* Lobby popup over the world */}
         {lobbyOpen && (
           <div
             className="lobby-popup-overlay"
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 10000,
-            }}
+            style={{ position: 'fixed', inset: 0, zIndex: 10000 }}
           >
             <ErrorBoundary>
               <Lobby
                 showBackground={false}
+                playerName={playerName}
                 onJoin={(matchID, playerID, playerName, credentials) => {
                   setLobbyOpen(false);
                   handleJoin(matchID, playerID, playerName, credentials);
@@ -431,11 +453,16 @@ export function App() {
     );
   }
 
-  // === CARD-GAME LOBBY (direct entry — e.g. /cardgame) ===
+  // Card-game lobby (direct entry, e.g. /cardgame)
   return (
     <>
       <ErrorBoundary>
-        <Lobby onJoin={handleJoin} onSpectate={handleSpectate} storedMatch={storedMatch} />
+        <Lobby
+          playerName={playerName}
+          onJoin={handleJoin}
+          onSpectate={handleSpectate}
+          storedMatch={storedMatch}
+        />
       </ErrorBoundary>
       {mobileToggle}
       {bugButton}
@@ -444,7 +471,6 @@ export function App() {
   );
 }
 
-// Helper for guest ID generation in MMORPG route
 function generateGuestId(): string {
   return 'guest_' + Math.random().toString(36).substring(2, 10);
 }

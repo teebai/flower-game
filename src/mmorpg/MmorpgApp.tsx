@@ -19,20 +19,23 @@ import { SPAWN_POS, ZONES } from './utils/constants';
 import { OrbitingArtwork } from './entities/OrbitingArtwork';
 import { GALLERY_ARTWORKS, buildGalleryOrbits, GALLERY_CENTER, type Artwork } from './data/artworks';
 import { ArtworkPopup } from './ui/ArtworkPopup';
+import { Nameplate } from './entities/Nameplate';
 
 // ── DEBUG BUILD MARKER ───────────────────────────────────────
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'world-landing-2026-07-14a';
+const BUILD_ID = 'char-creation-2026-07-16a';
 
 interface MmorpgAppProps {
   guestId?: string;
+  /** Player display name shown above the character as a nameplate. */
+  playerName: string;
   /** Called when the player taps the big minigame portal flower. */
   onOpenMinigame?: () => void;
 }
 
-export function MmorpgApp({ guestId, onOpenMinigame }: MmorpgAppProps) {
+export function MmorpgApp({ guestId, playerName, onOpenMinigame }: MmorpgAppProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -72,6 +75,10 @@ export function MmorpgApp({ guestId, onOpenMinigame }: MmorpgAppProps) {
     const character = new Character(dna);
     character.position.set(SPAWN_POS.x, SPAWN_POS.y);
     worldContainer.addChild(character);
+
+    // Nameplate floating above the character
+    const nameplate = new Nameplate(playerName, character);
+    worldContainer.addChild(nameplate);
 
     // Player controller
     const controller = new PlayerController(character);
@@ -297,6 +304,7 @@ export function MmorpgApp({ guestId, onOpenMinigame }: MmorpgAppProps) {
 
       // Update entities (Character expects real milliseconds)
       character.tick(deltaMS);
+      nameplate.tick(deltaMS);
       galleryFlower.tick(delta);
       minigamePortal.tick(delta);
       shopPortal.tick(delta);
@@ -337,7 +345,7 @@ export function MmorpgApp({ guestId, onOpenMinigame }: MmorpgAppProps) {
       artworkPopup.destroy();
       app.destroy(true, { children: true });
     };
-  }, [guestId]);
+  }, [guestId, playerName]);
 
   useEffect(() => {
     const container = canvasRef.current;
