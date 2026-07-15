@@ -33,6 +33,8 @@ interface Props {
   onJoin: (matchID: string, playerID: string, playerName: string, credentials: string) => void;
   onSpectate: (matchID: string) => void;
   storedMatch: MatchInfo | null;
+  /** Display name from character creation — used for matchmaking. */
+  playerName: string;
   /** Kept for backward compat; ignored — Lobby always uses GrassFieldCSS. */
   showBackground?: boolean;
 }
@@ -193,7 +195,7 @@ function providerLabel(provider: string, isGuest: boolean): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
-export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }: Props) {
+export function Lobby({ onJoin, onSpectate, storedMatch, playerName, showBackground = true }: Props) {
   const {
     configured,
     error: authError,
@@ -251,10 +253,10 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
     const duration = DANMAKU_MIN_DURATION
       + Math.random() * (DANMAKU_MAX_DURATION - DANMAKU_MIN_DURATION);
     const color = getWhimsicalColor(trimmed + now);
-    const playerName = profile?.displayName?.trim() || name.trim() || 'Guest';
+    const chatPlayerName = profile?.displayName?.trim() || playerName.trim() || 'Guest';
     const comment: DanmakuComment = {
       id: `${now}-${Math.random()}`,
-      text: `${playerName}: ${trimmed}`,
+      text: `${chatPlayerName}: ${trimmed}`,
       color,
       lane,
       duration: Math.round(duration),
@@ -609,9 +611,11 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
   }
 
   async function createMatch() {
-    const resolvedName = profile && !profile.isGuest
-      ? profile.displayName.trim()
-      : name.trim() || profile?.displayName?.trim() || '';
+    const resolvedName = playerName.trim()
+      || (profile && !profile.isGuest ? profile.displayName.trim() : '')
+      || name.trim()
+      || profile?.displayName?.trim()
+      || '';
     if (!resolvedName) { setError('Enter your name first'); return; }
     if (profile && !profile.isGuest && !profile.displayNameConfirmed) {
       setError('Choose your username before creating a match.');
@@ -669,9 +673,11 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
 
   async function joinMatch(requestedMatchID?: string) {
     const targetMatchID = requestedMatchID ?? matchID.trim();
-    const resolvedName = profile && !profile.isGuest
-      ? profile.displayName.trim()
-      : name.trim() || profile?.displayName?.trim() || '';
+    const resolvedName = playerName.trim()
+      || (profile && !profile.isGuest ? profile.displayName.trim() : '')
+      || name.trim()
+      || profile?.displayName?.trim()
+      || '';
     console.log('[join] start', { targetMatchID, hasProfile: !!profile, resolvedName: resolvedName.slice(0, 20) });
     if (!resolvedName) { setError('Enter your name first'); return; }
     if (profile && !profile.isGuest && !profile.displayNameConfirmed) {
