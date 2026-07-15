@@ -1,6 +1,10 @@
 import { http, HttpResponse } from 'msw';
 import { GAME } from '../config';
 
+// Base URL must match what config.ts resolves to in test environments.
+// Config.ts uses http://localhost:8000 for localhost, so we hardcode it here.
+const BASE = 'http://localhost:8000';
+
 // In-memory mock state
 const matches = new Map<string, MockMatch>();
 let matchCounter = 0;
@@ -49,7 +53,7 @@ function createMockMatch(roomName: string, playerName: string, maxPlayers = 6): 
 
 export const handlers = [
   // List rooms
-  http.get(`${window.location.origin}/rooms`, () => {
+  http.get(`${BASE}/rooms`, () => {
     const rooms = Array.from(matches.values())
       .filter(m => !m.gameover)
       .map(m => ({
@@ -72,7 +76,7 @@ export const handlers = [
   }),
 
   // Create match
-  http.post(`${window.location.origin}/games/${GAME}/create`, async ({ request }) => {
+  http.post(`${BASE}/games/${GAME}/create`, async ({ request }) => {
     const body = (await request.json()) as { numPlayers?: number; setupData?: { names?: string[]; roomName?: string; maxPlayers?: number } };
     const setupData = body?.setupData ?? {};
     const playerName = setupData.names?.[0] ?? 'Guest';
@@ -83,7 +87,7 @@ export const handlers = [
   }),
 
   // Join match
-  http.post(`${window.location.origin}/games/${GAME}/:matchID/join`, async ({ request, params }) => {
+  http.post(`${BASE}/games/${GAME}/:matchID/join`, async ({ request, params }) => {
     const { matchID } = params;
     const match = matches.get(String(matchID));
     if (!match) return new HttpResponse('Match not found', { status: 404 });
@@ -121,7 +125,7 @@ export const handlers = [
   }),
 
   // Get match metadata
-  http.get(`${window.location.origin}/games/${GAME}/:matchID`, ({ params }) => {
+  http.get(`${BASE}/games/${GAME}/:matchID`, ({ params }) => {
     const { matchID } = params;
     const match = matches.get(String(matchID));
     if (!match) return new HttpResponse('Match not found', { status: 404 });
@@ -136,7 +140,7 @@ export const handlers = [
   }),
 
   // Get room details
-  http.get(`${window.location.origin}/rooms/:matchID`, ({ params }) => {
+  http.get(`${BASE}/rooms/:matchID`, ({ params }) => {
     const { matchID } = params;
     const match = matches.get(String(matchID));
     if (!match) return new HttpResponse('Room not found', { status: 404 });
@@ -159,7 +163,7 @@ export const handlers = [
   }),
 
   // Leave match
-  http.post(`${window.location.origin}/rooms/:matchID/leave`, async ({ request, params }) => {
+  http.post(`${BASE}/rooms/:matchID/leave`, async ({ request, params }) => {
     const { matchID } = params;
     const body = (await request.json()) as { playerID?: string };
     const match = matches.get(String(matchID));
@@ -175,7 +179,7 @@ export const handlers = [
   }),
 
   // Start match
-  http.post(`${window.location.origin}/rooms/:matchID/start`, ({ params }) => {
+  http.post(`${BASE}/rooms/:matchID/start`, ({ params }) => {
     const { matchID } = params;
     const match = matches.get(String(matchID));
     if (!match) return new HttpResponse('Match not found', { status: 404 });
@@ -185,7 +189,7 @@ export const handlers = [
   }),
 
   // Leave via game server endpoint
-  http.post(`${window.location.origin}/games/${GAME}/:matchID/leave`, async ({ request, params }) => {
+  http.post(`${BASE}/games/${GAME}/:matchID/leave`, async ({ request, params }) => {
     const { matchID } = params;
     const body = (await request.json()) as { playerID?: string };
     const match = matches.get(String(matchID));
