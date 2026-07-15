@@ -3,13 +3,12 @@
 // Create or join a match via boardgame.io Lobby API.
 // ============================================================
 
-import { useEffect, useState, useCallback, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useAuth } from '../auth/AuthProvider';
 import type { MatchInfo } from '../auth/storage';
 import { SERVER, IDENTITY_SERVER, GAME } from '../config';
-import { GrassField } from '../board/GrassField';
-import { GrassFieldCSS } from './GrassFieldCSS';
 import { HowToPlay } from './HowToPlay';
+import { GrassFieldCSS } from './GrassFieldCSS';
 import {
   type DanmakuComment,
   getWhimsicalColor,
@@ -34,6 +33,7 @@ interface Props {
   onJoin: (matchID: string, playerID: string, playerName: string, credentials: string) => void;
   onSpectate: (matchID: string) => void;
   storedMatch: MatchInfo | null;
+  /** Kept for backward compat; ignored — Lobby always uses GrassFieldCSS. */
   showBackground?: boolean;
 }
 
@@ -759,29 +759,11 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
   );
   const compactLockedIdentity = Boolean(profile && !profile.isGuest && profile.displayNameConfirmed && usernameLocked);
 
-  // ── Interactive grass background ──
-  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
-
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    setCursorPos({ x: e.clientX, y: e.clientY });
-  }, []);
-
-  const handlePointerLeave = useCallback(() => {
-    setCursorPos(null);
-  }, []);
-
   return (
-    <div
-      className="lobby-shell"
-      onPointerMove={handlePointerMove}
-      onPointerLeave={handlePointerLeave}
-      style={{ position: 'relative' }}
-    >
-      {showBackground ? (
-        <GrassField season="spring" scrollX={0} scrollY={0} zoom={1} cursorPos={cursorPos} className="lobby-grass" />
-      ) : (
-        <GrassFieldCSS />
-      )}
+    <div className="lobby-shell" style={{ position: 'relative' }}>
+      {/* GrassFieldCSS is the single grass implementation for the Lobby.
+          It handles its own cursor tracking and spring physics. */}
+      <GrassFieldCSS />
       <div className="lobby-card" style={{ zIndex: 1 }}>
         {/* Hero banner with animated GIF */}
         <section className="lobby-hero-gif">
@@ -1370,4 +1352,67 @@ export function Lobby({ onJoin, onSpectate, storedMatch, showBackground = true }
               <div className="lobby-leaderboard-me">
                 <div>
                   <div className="lobby-field-label">Your Record</div>
-                  <div class connection here due to length... (truncated)
+                  <div className="lobby-player-stats__grid">
+                    <div className="lobby-stat-tile">
+                      <div className="lobby-stat-tile__value">{myStats.gamesWon}</div>
+                      <div className="lobby-stat-tile__label">Wins</div>
+                    </div>
+                    <div className="lobby-stat-tile">
+                      <div className="lobby-stat-tile__value">{myStats.gamesPlayed}</div>
+                      <div className="lobby-stat-tile__label">Played</div>
+                    </div>
+                    <div className="lobby-stat-tile">
+                      <div className="lobby-stat-tile__value">{formatWinRate(myStats.winRate)}</div>
+                      <div className="lobby-stat-tile__label">Win rate</div>
+                    </div>
+                    <div className="lobby-stat-tile">
+                      <div className="lobby-stat-tile__value">{myStats.flowersPlanted}</div>
+                      <div className="lobby-stat-tile__label">Flowers</div>
+                    </div>
+                  </div>
+                  <div className="lobby-identity-note">
+                    Last match {formatRelativeDate(myStats.lastPlayedAt)}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {leaderboardLoading && (
+              <div className="lobby-loading-spinner">Loading...</div>
+            )}
+
+            {leaderboardError && (
+              <div className="lobby-error-banner">
+                {leaderboardError}
+                <button onClick={() => void loadLeaderboard()}>Retry</button>
+              </div>
+            )}
+
+            {!leaderboardLoading && !leaderboardError && leaderboard.length === 0 && (
+              <div className="lobby-empty-state">No leaderboard data yet. Play some games!</div>
+            )}
+
+            {!leaderboardLoading && !leaderboardError && leaderboard.length > 0 && (
+              <div className="lobby-leaderboard-table">
+                {leaderboard.map((entry) => (
+                  <div
+                    key={entry.accountId || entry.displayName}
+                    className={`lobby-leaderboard-row${highlightedLeaderboardEntry?.accountId === entry.accountId ? ' is-me' : ''}`}
+                  >
+                    <div className="lobby-leaderboard-rank">#{entry.rank}</div>
+                    <div className="lobby-leaderboard-name">{entry.displayName}</div>
+                    <div className="lobby-leaderboard-stat">
+                      <span>{entry.gamesWon}W</span>
+                      <span>{entry.gamesPlayed}P</span>
+                      <span>{formatWinRate(entry.winRate)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
