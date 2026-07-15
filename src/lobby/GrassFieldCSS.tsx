@@ -1,15 +1,18 @@
 /**
  * GrassFieldCSS.tsx — CSS-only interactive grass field.
  *
- * Replicates the original Pixi GrassField behaviour:
- *   - Full-viewport blade grid (not just bottom edge)
- *   - Cursor push interaction (blades within 120px lean away from mouse)
+ * Replicates the original Pixi GrassField spring aesthetic:
+ *   - Full-viewport blade grid
+ *   - Cursor push interaction (spring physics, blades lean away from mouse)
  *   - Swaying wind animation via per-blade CSS keyframes
- *   - Spring palette on radial-gradient sky
+ *   - Spring palette: pink radial-gradient sky + pink grass blades
  *
  * Uses refs + requestAnimationFrame for cursor tracking to avoid
- * React re-renders. Transforms are applied directly to DOM nodes
- * for 60fps performance.
+ * React re-renders. Transforms applied directly to DOM nodes for 60fps.
+ *
+ * IMPORTANT: This is the SINGLE grass implementation used by the Lobby.
+ * The Pixi GrassField is used ONLY by the MMORPG world, never by the Lobby.
+ * This prevents aesthetic divergence between popup and direct-access modes.
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -28,7 +31,9 @@ interface Blade {
   phase: number;    // wind phase offset
 }
 
-const BLADE_COLORS = ['#DBF9DB', '#C3FDB8', '#B8E6B8'];
+// Spring-season blade colours — matched to Pixi GrassField spring palette.
+// These pink tones complement the radial-gradient sky (#FFF0F5 → #F9B7FF → #7FFFD4).
+const BLADE_COLORS = ['#FDEEF4', '#FDD7E4'];
 
 function generateBlades(count: number): Blade[] {
   const blades: Blade[] = [];
@@ -37,19 +42,19 @@ function generateBlades(count: number): Blade[] {
   let id = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols && id < count; c++) {
-      const baseX = c / cols * 100;
-      const baseY = r / rows * 100;
+      const baseX = (c / cols) * 100;
+      const baseY = (r / rows) * 100;
       blades.push({
         id: id++,
         x: baseX + (Math.random() - 0.5) * (80 / cols),
         y: baseY + (Math.random() - 0.5) * (80 / rows),
-        h: 18 + Math.random() * 28,
-        w: 3 + Math.random() * 4,
+        h: 35 + Math.random() * 50,     // 35-85px — matches user-approved sizing
+        w: 3 + Math.random() * 4,       // 3-7px width
         delay: Math.random() * -4,
         dur: 2.0 + Math.random() * 1.8,
         color: BLADE_COLORS[id % BLADE_COLORS.length],
         sway: 3 + Math.random() * 5,
-        opacity: 0.55 + Math.random() * 0.25,
+        opacity: 0.18 + Math.random() * 0.17, // 0.18-0.35 — subtle, not overwhelming
         phase: Math.random() * Math.PI * 2,
       });
     }
@@ -87,7 +92,6 @@ export function GrassFieldCSS() {
   }, []);
 
   // Interaction loop: spring-physics cursor push (matches original GrassField)
-  // Each blade has velocity + damping for graceful, non-instant response.
   useEffect(() => {
     const PUSH_RADIUS = 120;
     const MAX_ROTATION = 22;   // gentler max lean
