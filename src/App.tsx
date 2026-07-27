@@ -1,6 +1,6 @@
 // ============================================================
 // FLOWER GAME — APP ROOT
-// Handles: Character Creation → World → Lobby Popup → Game routing
+// Handles: Portal Landing → World → Lobby Popup → Game routing
 // ============================================================
 
 import { useEffect, useRef, useState, lazy, Suspense } from 'react';
@@ -13,7 +13,7 @@ import { SERVER } from './config';
 import { FlowerBoard } from './board/FlowerBoard';
 import { Lobby } from './lobby/Lobby';
 import { MatchContext, type MatchSeatPresence } from './matchContext';
-import { CharacterCreation } from './mmorpg/CharacterCreation';
+import { PortalLandingPage } from './landing/PortalLandingPage';
 import DebugLayoutPage from './DebugLayoutPage';
 import DebugArenaPage from './DebugArenaPage';
 import { ToastContainer } from './components/ToastContainer';
@@ -372,16 +372,17 @@ export function App() {
   }
 
   // ============================================================
-  // CHARACTER CREATION — First-time entry
-  // If the player hasn't set a name yet, show the creation screen.
-  // After name is set, they enter the world at '/world'.
+  // PORTAL LANDING — First-time entry
+  // Spinning tunnel vortex with character name + social login.
+  // After name is set, character drops into the tunnel as portal
+  // to the world at '/world'.
   // ============================================================
   if (!playerName) {
     return (
-      <CharacterCreation
+      <PortalLandingPage
         onEnterWorld={(name) => {
           setPlayerName(name);
-          // Redirect to /world after name is set
+          // Redirect to /world after portal drop animation
           window.history.replaceState({}, '', '/world');
         }}
       />
@@ -390,7 +391,7 @@ export function App() {
 
   // ============================================================
   // MMORPG WORLD — The main game world
-  // Entry: after character creation OR direct /world
+  // Entry: after portal landing OR direct /world
   // ============================================================
   const worldRoute = pathname === '/' || pathname === '/world';
   if (worldRoute) {
