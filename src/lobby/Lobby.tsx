@@ -195,7 +195,7 @@ function providerLabel(provider: string, isGuest: boolean): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
-export function Lobby({ onJoin, onSpectate, storedMatch, playerName, showBackground = true }: Props) {
+export function Lobby({ onJoin, onSpectate, storedMatch, playerName = '', showBackground = true }: Props) {
   const {
     configured,
     error: authError,
