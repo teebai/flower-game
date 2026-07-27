@@ -35,10 +35,12 @@ function generateMatchID(): string {
 
 function createMockMatch(roomName: string, playerName: string, maxPlayers = 6): MockMatch {
   const matchID = generateMatchID();
+  // Mirror the real boardgame.io server: create makes empty seats only;
+  // players are seated by the subsequent /join call.
   const match: MockMatch = {
     matchID,
     gameName: GAME,
-    players: [{ id: '0', name: playerName, isConnected: true }],
+    players: Array.from({ length: maxPlayers }, (_, i) => ({ id: String(i), isConnected: false })),
     roomName: roomName || `${playerName}'s room`,
     createdAt: Date.now(),
     started: false,
@@ -154,9 +156,9 @@ export const handlers = [
       gameover: match.gameover,
       started: match.started,
       joinedCount: match.players.filter(p => p.name).length,
-      maxPlayers: match.maxPlayers,
-      minPlayers: match.minPlayers,
-      openSeatCount: match.maxPlayers - match.players.filter(p => p.name).length,
+      maxPlayers: m.maxPlayers,
+      minPlayers: m.minPlayers,
+      openSeatCount: m.maxPlayers - m.players.filter(p => p.name).length,
       ownerPlayerId: '0',
       readyPlayerIds: [],
     });

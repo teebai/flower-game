@@ -16,11 +16,11 @@ describe('GrassFieldCSS', () => {
 
   it('renders grass blade div elements', () => {
     const { container } = render(<GrassFieldCSS />);
-    // Blades have borderRadius set via inline style
+    // Blades have border-radius set via inline style (serialized kebab-case)
     const allDivs = container.querySelectorAll('div');
     const bladeCount = Array.from(allDivs).filter(d => {
       const s = d.getAttribute('style') || '';
-      return s.includes('borderRadius') && s.includes('transformOrigin');
+      return s.includes('border-radius') && s.includes('transform-origin');
     }).length;
     expect(bladeCount).toBeGreaterThan(0);
   });
@@ -36,7 +36,7 @@ describe('GrassFieldCSS', () => {
     const countBlades = (c: HTMLElement) =>
       Array.from(c.querySelectorAll('div')).filter(d => {
         const s = d.getAttribute('style') || '';
-        return s.includes('borderRadius') && s.includes('transformOrigin');
+        return s.includes('border-radius') && s.includes('transform-origin');
       }).length;
 
     const firstCount = countBlades(c1);

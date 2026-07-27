@@ -70,12 +70,12 @@ describe('Lobby', () => {
     const nameBtn = screen.getByRole('button', { name: /NAME/i });
     await user.click(nameBtn);
 
-    const nameInput = screen.getByPlaceholderText(/NAME/i);
+    const nameInput = screen.getByPlaceholderText('NAME');
     await user.type(nameInput, 'TestPlayer');
     await user.keyboard('{Enter}');
 
     // Click Guest to continue as guest
-    const guestBtn = screen.getByRole('button', { name: /^Guest$/i }));
+    const guestBtn = screen.getByRole('button', { name: /^Guest$/i });
     await user.click(guestBtn);
 
     // Open create bubble

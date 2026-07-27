@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render } from './test/render';
 import { App } from './App';
 
 // Mock the lazy-loaded MMORPG component

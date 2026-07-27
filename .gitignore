@@ -20,3 +20,6 @@ dist/
 .claude/
 .herenow/
 *.log
+
+# Local runtime data (match DB, presence)
+data/
