@@ -8,7 +8,18 @@ const OAUTH_PENDING_STORAGE_KEY = 'flower-game:oauth-pending';
 const IDENTITY_SERVER_URL = import.meta.env.VITE_IDENTITY_SERVER_URL?.trim() || '';
 const AUTH_REDIRECT_URL = import.meta.env.VITE_AUTH_REDIRECT_URL?.trim() || '';
 
-type SocialProvider = 'google' | 'apple';
+type SocialProvider = 'google' | 'apple' | 'facebook' | 'discord' | 'github';
+
+function providerLabel(provider: SocialProvider): string {
+  const labels: Record<SocialProvider, string> = {
+    google: 'Google',
+    apple: 'Apple',
+    facebook: 'Facebook',
+    discord: 'Discord',
+    github: 'GitHub',
+  };
+  return labels[provider];
+}
 
 interface AuthNotice {
   tone: 'success' | 'error' | 'info';
@@ -45,6 +56,9 @@ interface AuthContextValue {
   getAccessToken: () => Promise<string | null>;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
+  signInWithFacebook: () => Promise<void>;
+  signInWithDiscord: () => Promise<void>;
+  signInWithGitHub: () => Promise<void>;
   signOut: () => Promise<void>;
   updateDisplayName: (nextName: string) => Promise<void>;
   dismissNotice: () => void;
@@ -81,10 +95,6 @@ function savePendingOAuthAction(action: PendingOAuthAction | null): void {
   } catch {
     // ignore transient storage failures
   }
-}
-
-function providerLabel(provider: SocialProvider): string {
-  return provider === 'google' ? 'Google' : 'Apple';
 }
 
 function readAuthErrorFromUrl(): string {
@@ -582,6 +592,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     },
     signInWithGoogle: () => signInWithOAuth('google'),
     signInWithApple: () => signInWithOAuth('apple'),
+    signInWithFacebook: () => signInWithOAuth('facebook'),
+    signInWithDiscord: () => signInWithOAuth('discord'),
+    signInWithGitHub: () => signInWithOAuth('github'),
     signOut,
     updateDisplayName,
     dismissNotice: () => setNotice(null),
