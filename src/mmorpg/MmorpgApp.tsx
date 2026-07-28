@@ -14,7 +14,8 @@ import { Character } from './entities/Character';
 import { MassiveFlower } from './entities/MassiveFlower';
 import { PortalFlower } from './entities/PortalFlower';
 import { SteamParticleSystem } from './entities/SteamParticle';
-import { generateCharacterDNA, generateGuestId } from './game/CharacterGenerator';
+import { generateGuestId } from './game/CharacterGenerator';
+import { resolveCharacterDNA } from '../character/resolveDna';
 import { SPAWN_POS, ZONES } from './utils/constants';
 import { OrbitingArtwork } from './entities/OrbitingArtwork';
 import { GALLERY_ARTWORKS, buildGalleryOrbits, GALLERY_CENTER, type Artwork } from './data/artworks';
@@ -25,7 +26,27 @@ import { Nameplate } from './entities/Nameplate';
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'char-creation-2026-07-16a';
+const BUILD_ID = 'heaven-portal-2026-07-17a';
+
+/** Height (world px) the character falls from when arriving via the portal. */
+const SKY_DROP_HEIGHT = 700;
+/** Sky-drop fall duration in ms (ease-in, then squash-and-stretch landing). */
+const SKY_DROP_MS = 1400;
+/** Slightly larger scale while falling — settles to 1 on touchdown. */
+const SKY_DROP_SCALE = 1.25;
+/** sessionStorage flag set by the landing page just before the handoff. */
+const PORTAL_ENTRY_KEY = 'flower-game:portal-entry';
+
+/** Consume the portal-entry flag: true exactly once per landing handoff. */
+function consumePortalEntryFlag(): boolean {
+  try {
+    if (window.sessionStorage.getItem(PORTAL_ENTRY_KEY) === '1') {
+      window.sessionStorage.removeItem(PORTAL_ENTRY_KEY);
+      return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
 
 interface MmorpgAppProps {
   guestId?: string;
@@ -70,8 +91,9 @@ export function MmorpgApp({ guestId, playerName, onOpenMinigame }: MmorpgAppProp
     const camera = new Camera();
     camera.resize(container.clientWidth, container.clientHeight);
 
-    // Generate player character
-    const dna = generateCharacterDNA(guestId || generateGuestId());
+    // Generate player character — resolveCharacterDNA applies the persisted
+    // body-size override so the spawn matches the landing preview exactly.
+    const dna = resolveCharacterDNA(guestId || generateGuestId());
     const character = new Character(dna);
     character.position.set(SPAWN_POS.x, SPAWN_POS.y);
     worldContainer.addChild(character);
@@ -82,6 +104,18 @@ export function MmorpgApp({ guestId, playerName, onOpenMinigame }: MmorpgAppProp
 
     // Player controller
     const controller = new PlayerController(character);
+
+    // ── Portal sky-drop: arriving from the landing page, the character
+    //    falls out of the sky and lands on the grass (one continuous motion
+    //    from the portal transition). Input is suppressed until touchdown.
+    let skyDrop: { t: number } | null = null;
+    if (consumePortalEntryFlag()) {
+      character.setHeight(SKY_DROP_HEIGHT);
+      character.setFlyScale(SKY_DROP_SCALE);
+      character.alpha = 0;
+      controller.setEnabled(false);
+      skyDrop = { t: 0 };
+    }
 
     // Wind effect
     const windEffect = new WindEffect();
@@ -269,8 +303,24 @@ export function MmorpgApp({ guestId, playerName, onOpenMinigame }: MmorpgAppProp
       const delta = ticker.deltaTime;
       const deltaMS = ticker.deltaMS;
 
-      // Wind effect (takes priority over player movement)
-      if (windEffect.isActive()) {
+      // Sky-drop takes priority over everything until touchdown.
+      if (skyDrop) {
+        skyDrop.t += deltaMS;
+        const p = Math.min(1, skyDrop.t / SKY_DROP_MS);
+        const easeIn = p * p; // accelerating fall
+        character.setHeight(SKY_DROP_HEIGHT * (1 - easeIn));
+        character.alpha = Math.min(1, p * 2.5);
+        character.setFlyScale(SKY_DROP_SCALE + (1 - SKY_DROP_SCALE) * p);
+        if (p >= 1) {
+          character.setHeight(0);
+          character.alpha = 1;
+          character.setFlyScale(1);
+          character.playLanding(); // squash-and-stretch bounce
+          controller.setEnabled(true);
+          skyDrop = null;
+        }
+        camera.setLerp(0.12);
+      } else if (windEffect.isActive()) {
         // Feed steering every frame: keyboard wins, else pointer drag.
         const ks = controller.getSteerVector();
         windEffect.setSteerInput(
