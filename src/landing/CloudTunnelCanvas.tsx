@@ -2,17 +2,20 @@
  * CloudTunnelCanvas.tsx — Infinite "flight into heaven" cloud tunnel.
  *
  * Canvas 2D renderer:
- * - Bright sky gradient background (white → soft pink/blue).
- * - Pre-rendered soft cloud-puff sprites projected through a tunnel with
- *   z-depth: clouds spawn far away (small, near the centre) and stream
- *   toward the viewer (growing + drifting outward), recycling seamlessly at
- *   the near plane — an endless forward flight with no visible loop.
+ * - Bright sky gradient background (white → pale turquoise).
+ * - Pre-rendered soft cloud-puff sprites (white + light turquoise) projected
+ *   through a tunnel with z-depth: clouds spawn far away (small, near the
+ *   centre) and stream toward the viewer (growing + drifting outward),
+ *   recycling seamlessly at the near plane — an endless forward flight.
  * - Occasional iridescent light rays: subtle translucent diagonal beams
  *   with soft rainbow gradients fading in/out at random spots.
  *
- * Set `accelerating` to speed the tunnel up (used by the enter-world
- * transition). jsdom has no canvas 2D context — when getContext('2d')
- * returns null the component renders a static CSS-gradient fallback instead.
+ * Set `accelerating` to begin the enter-world departure: the tunnel keeps
+ * zooming faster and LONGER, clouds stop respawning and stream out of the
+ * centre until the sky opens up, and a soft white glow grows from the
+ * vanishing point to carry the eye into the world — no overlay layers.
+ * jsdom has no canvas 2D context — when getContext('2d') returns null the
+ * component renders a static CSS-gradient fallback instead.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -58,16 +61,18 @@ interface Ray {
 
 const PUFF_COUNT = 64;
 const BASE_SPEED = 0.055;      // z units per second (cruising)
-const ACCEL_SPEED = 0.42;      // z units per second (transition)
+const ACCEL_SPEED = 0.5;       // z units per second (departure zoom)
 const FADE_IN_END = 0.12;      // z where a cloud finishes fading in
 const FADE_OUT_START = 0.82;   // z where a cloud starts fading out
+/** ms from departure start until the centre glow fills the screen. */
+const REVEAL_MS = 2600;
 
-/** Soft cloud-puff sprite tint variants (white with pink/blue tints). */
+/** Cloud-puff sprite tints — white and light turquoise only. */
 const TINTS: Array<{ edge: string }> = [
-  { edge: '255, 214, 232' }, // soft pink
-  { edge: '214, 232, 255' }, // soft blue
   { edge: '255, 255, 255' }, // pure white
-  { edge: '240, 222, 255' }, // faint lavender
+  { edge: '255, 255, 255' }, // pure white (weighted)
+  { edge: '178, 235, 242' }, // light turquoise
+  { edge: '214, 247, 244' }, // pale turquoise
 ];
 
 function makeCloudSprite(edge: string): HTMLCanvasElement | null {
@@ -77,14 +82,18 @@ function makeCloudSprite(edge: string): HTMLCanvasElement | null {
   const ctx = sprite.getContext('2d');
   if (!ctx) return null;
 
-  // A puff = several overlapping radial-gradient blobs.
+  // A cloud = many overlapping radial-gradient blobs arranged as a wide,
+  // bumpy row with a flatter base — puffy cumulus silhouette, not a ball.
   const blobs: Array<[number, number, number]> = [
-    [128, 138, 92],
-    [84, 120, 62],
-    [172, 118, 66],
-    [104, 166, 58],
-    [152, 168, 60],
-    [128, 108, 54],
+    [128, 158, 74],  // central base
+    [76, 150, 54],   // left base
+    [180, 150, 56],  // right base
+    [100, 122, 52],  // left top bump
+    [156, 118, 54],  // right top bump
+    [128, 104, 48],  // crown bump
+    [52, 164, 34],   // far-left wisp
+    [204, 164, 36],  // far-right wisp
+    [128, 134, 60],  // centre fill
   ];
   for (const [bx, by, br] of blobs) {
     const grad = ctx.createRadialGradient(bx, by, br * 0.1, bx, by, br);
@@ -127,10 +136,13 @@ function spawnRay(): Ray {
 export function CloudTunnelCanvas({ accelerating = false, className }: CloudTunnelCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const acceleratingRef = useRef(accelerating);
+  const departingRef = useRef(false);
+  const departStartRef = useRef<number | null>(null);
   const [supported, setSupported] = useState(true);
 
   useEffect(() => {
     acceleratingRef.current = accelerating;
+    if (accelerating) departingRef.current = true;
   }, [accelerating]);
 
   useEffect(() => {
@@ -175,8 +187,8 @@ export function CloudTunnelCanvas({ accelerating = false, className }: CloudTunn
     const drawSky = (w: number, h: number) => {
       const sky = ctx.createLinearGradient(0, 0, 0, h);
       sky.addColorStop(0, '#ffffff');
-      sky.addColorStop(0.45, '#fdf1f7');
-      sky.addColorStop(1, '#e9f2ff');
+      sky.addColorStop(0.45, '#f2fbfa');
+      sky.addColorStop(1, '#ddf2f0');
       ctx.fillStyle = sky;
       ctx.fillRect(0, 0, w, h);
 
@@ -190,7 +202,7 @@ export function CloudTunnelCanvas({ accelerating = false, className }: CloudTunn
     };
 
     const drawRays = (w: number, h: number, dtMs: number, now: number) => {
-      if (now >= nextRayAt && rays.length < 3) {
+      if (!departingRef.current && now >= nextRayAt && rays.length < 3) {
         rays.push(spawnRay());
         nextRayAt = now + 1800 + Math.random() * 3200;
       }
@@ -239,9 +251,17 @@ export function CloudTunnelCanvas({ accelerating = false, className }: CloudTunn
       // Painter's order: far clouds first.
       puffs.sort((a, b) => a.z - b.z);
 
-      for (const puff of puffs) {
+      for (let i = puffs.length - 1; i >= 0; i -= 1) {
+        const puff = puffs[i];
         puff.z += puff.speed * speed * dtSec;
         if (puff.z >= 1) {
+          if (departingRef.current) {
+            // Departure: clouds stream past the camera and are GONE — no
+            // respawn, so the tunnel clears away from the centre and the
+            // world is revealed. New clouds only spawn while cruising.
+            puffs.splice(i, 1);
+            continue;
+          }
           // Recycle to the far plane with a fresh lane — seamless loop.
           const fresh = spawnPuff(true);
           puff.angle = fresh.angle;
@@ -273,7 +293,8 @@ export function CloudTunnelCanvas({ accelerating = false, className }: CloudTunn
 
         const sprite = sprites[puff.sprite % sprites.length];
         ctx.globalAlpha = alpha;
-        ctx.drawImage(sprite, px - size / 2, py - size / 2, size, size);
+        // Clouds are wider than tall — a puffy silhouette, not a ball.
+        ctx.drawImage(sprite, px - size * 0.72, py - size * 0.5, size * 1.44, size);
       }
       ctx.globalAlpha = 1;
     };
@@ -302,6 +323,24 @@ export function CloudTunnelCanvas({ accelerating = false, className }: CloudTunn
       drawSky(w, h);
       drawRays(w, h, dtMs, ts);
       drawPuffs(w, h, dtSec, nowSec);
+
+      // Departure reveal: a soft white glow grows from the vanishing point
+      // until it fills the screen — the tunnel itself opens into the world
+      // instead of a separate overlay layer.
+      if (departingRef.current) {
+        if (departStartRef.current === null) departStartRef.current = ts;
+        const t = Math.min(1, (ts - departStartRef.current) / REVEAL_MS);
+        const eased = t * t * (3 - 2 * t); // smoothstep
+        if (eased > 0) {
+          const r = Math.max(w, h) * (0.2 + eased * 1.1);
+          const glow = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, r);
+          glow.addColorStop(0, `rgba(255, 255, 255, ${0.95 * eased})`);
+          glow.addColorStop(0.5, `rgba(240, 252, 250, ${0.6 * eased})`);
+          glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          ctx.fillStyle = glow;
+          ctx.fillRect(0, 0, w, h);
+        }
+      }
     };
 
     rafId = window.requestAnimationFrame(frame);

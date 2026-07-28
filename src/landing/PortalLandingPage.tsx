@@ -10,9 +10,12 @@
  * signed-in users, a persistent guest id otherwise) via
  * resolveCharacterDNA — the dice button re-rolls BODY SIZE ONLY.
  *
- * Enter World → hero flies into the tunnel centre → the tunnel blooms open
- * → onEnterWorld(name) hands off to the world, where the character drops
- * from the sky (see MmorpgApp, flag: sessionStorage 'flower-game:portal-entry').
+ * Enter World → hero flies into the tunnel centre → the tunnel keeps
+ * zooming (longer) while clouds stream out of the centre and a soft glow
+ * opens the sky → onEnterWorld(name) hands off to the world, where the
+ * character drops from the sky (see MmorpgApp, flag: sessionStorage
+ * 'flower-game:portal-entry'). No overlay layers — the tunnel IS the
+ * transition.
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -84,7 +87,7 @@ interface PortalLandingPageProps {
   onEnterWorld: (name: string) => void;
 }
 
-type Phase = 'input' | 'flying' | 'bloom';
+type Phase = 'input' | 'flying';
 
 const NOTICE_TONE_CLASS: Record<string, string> = {
   error: 'pl-notice--error',
@@ -172,14 +175,15 @@ export function PortalLandingPage({ onEnterWorld }: PortalLandingPageProps) {
     return trimmed;
   }
 
-  /** Enter transition: hero flies into the tunnel, tunnel blooms, hand off. */
+  /** Enter transition: hero flies in, tunnel zooms LONGER, clouds part. */
   function triggerEntry(playerName: string) {
     setPhase('flying');
-    entryTimers.current.push(window.setTimeout(() => setPhase('bloom'), 1300));
+    // The tunnel does all the work: accelerate, clouds stream out of the
+    // centre, the centre glow opens — then hand off to the world's sky-drop.
     entryTimers.current.push(window.setTimeout(() => {
       try { sessionStorage.setItem(PORTAL_ENTRY_KEY, '1'); } catch { /* ignore */ }
       onEnterWorld(playerName);
-    }, 2100));
+    }, 3100));
   }
 
   async function handleEnterWorld() {
@@ -258,8 +262,7 @@ export function PortalLandingPage({ onEnterWorld }: PortalLandingPageProps) {
   }
 
   const isTransitioning = phase !== 'input';
-  const phaseClass =
-    phase === 'flying' ? 'phase-flying' : phase === 'bloom' ? 'phase-bloom' : 'phase-input';
+  const phaseClass = phase === 'flying' ? 'phase-flying' : 'phase-input';
 
   return (
     <div className={`portal-landing ${phaseClass}`}>
@@ -417,9 +420,6 @@ export function PortalLandingPage({ onEnterWorld }: PortalLandingPageProps) {
           </div>
         </div>
       )}
-
-      {/* ─── Bloom: the tunnel centre opens into white-gold light ─── */}
-      {phase === 'bloom' && <div className="pl-bloom" />}
 
       {/* ─── FUTURE CONTENT SLOT ────────────────────────────────
           Reserved for news updates / ongoing shows (requested by
