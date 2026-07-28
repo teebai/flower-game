@@ -3,7 +3,7 @@
 // PixiJS v8 + React integration for teebai.flowers world
 // ============================================================
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Application, Container, Point } from 'pixi.js';
 import { WorldMap } from './game/WorldMap';
 import { Camera } from './game/Camera';
@@ -26,7 +26,7 @@ import { Nameplate } from './entities/Nameplate';
 // Bump this string on every push so you can confirm at a glance
 // (on-screen + console) that the browser is running the NEW code
 // and not a stale Vite bundle.
-const BUILD_ID = 'heaven-portal-2026-07-17a';
+const BUILD_ID = 'heaven-portal-2026-07-28b';
 
 /** Height (world px) the character falls from when arriving via the portal. */
 const SKY_DROP_HEIGHT = 700;
@@ -48,6 +48,14 @@ function consumePortalEntryFlag(): boolean {
   return false;
 }
 
+/** Peek at the portal-entry flag without consuming it (initGame consumes). */
+function peekPortalEntryFlag(): boolean {
+  try {
+    return window.sessionStorage.getItem(PORTAL_ENTRY_KEY) === '1';
+  } catch { /* ignore */ }
+  return false;
+}
+
 interface MmorpgAppProps {
   guestId?: string;
   /** Player display name shown above the character as a nameplate. */
@@ -60,6 +68,9 @@ export function MmorpgApp({ guestId, playerName, onOpenMinigame }: MmorpgAppProp
   const canvasRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Arriving via the portal: the world starts at the same brightest white
+  // the tunnel ended on, then fades down to normal — one continuous light.
+  const [arriving] = useState(peekPortalEntryFlag);
   // Ref keeps the portal tap callback fresh without re-initialising Pixi.
   const onOpenMinigameRef = useRef(onOpenMinigame);
   useEffect(() => {
@@ -413,17 +424,41 @@ export function MmorpgApp({ guestId, playerName, onOpenMinigame }: MmorpgAppProp
   }, [initGame]);
 
   return (
-    <div
-      ref={canvasRef}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100vw',
-        height: '100vh',
-        overflow: 'hidden',
-        background: '#1a1a2e',
-      }}
-    />
+    <>
+      <div
+        ref={canvasRef}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          overflow: 'hidden',
+          background: '#1a1a2e',
+        }}
+      />
+      {arriving && (
+        <>
+          <style>{`
+            @keyframes world-arrival-fade {
+              0% { opacity: 1; }
+              100% { opacity: 0; }
+            }
+          `}</style>
+          {/* Arrival flash: matches the tunnel's brightest white, then
+              eases down to the normal world while the character drops. */}
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9990,
+              pointerEvents: 'none',
+              background: '#ffffff',
+              animation: 'world-arrival-fade 1.8s ease-out 0.15s forwards',
+            }}
+          />
+        </>
+      )}
+    </>
   );
 }
