@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
-    "dev": "vite --host --port 3000",
+    "dev": "node scripts/dev.js",
     "build": "vite build && tsc -p tsconfig.server.json",
     "preview": "vite preview",
     "start": "mkdir -p data/boardgameio-db data/presence && node dist/server/index.js",

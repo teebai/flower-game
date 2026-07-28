@@ -20,17 +20,24 @@ async function enableMocking() {
   return Promise.resolve();
 }
 
-enableMocking().then(() => {
-  const root = document.getElementById('root')!;
-  createRoot(root).render(
-    <StrictMode>
-      <AssetPreloader onReady={() => {}}>
-        <AuthProvider>
-          <CardArtProvider>
-            <App />
-          </CardArtProvider>
-        </AuthProvider>
-      </AssetPreloader>
-    </StrictMode>
-  );
-});
+// Enable MSW mock API server in development (no real backend needed).
+// If the mock worker fails to start, render the app anyway — a rejected
+// promise here must never leave the page blank.
+enableMocking()
+  .catch((err) => {
+    console.warn('[dev] MSW mock worker failed to start; continuing without mocks.', err);
+  })
+  .finally(() => {
+    const root = document.getElementById('root')!;
+    createRoot(root).render(
+      <StrictMode>
+        <AssetPreloader onReady={() => {}}>
+          <AuthProvider>
+            <CardArtProvider>
+              <App />
+            </CardArtProvider>
+          </AuthProvider>
+        </AssetPreloader>
+      </StrictMode>
+    );
+  });

@@ -3,7 +3,7 @@
 // Handles: Portal Landing → World → Lobby Popup → Game routing
 // ============================================================
 
-import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Client }   from 'boardgame.io/react';
 import { SocketIO } from 'boardgame.io/multiplayer';
@@ -14,6 +14,7 @@ import { FlowerBoard } from './board/FlowerBoard';
 import { Lobby } from './lobby/Lobby';
 import { MatchContext, type MatchSeatPresence } from './matchContext';
 import { PortalLandingPage } from './landing/PortalLandingPage';
+import { getSessionCharacterSeed } from './character/identity';
 import DebugLayoutPage from './DebugLayoutPage';
 import DebugArenaPage from './DebugArenaPage';
 import { ToastContainer } from './components/ToastContainer';
@@ -76,14 +77,17 @@ export function App() {
   const [parkedMatchKey, setParkedMatchKey] = useState('');
   const [leaving, setLeaving] = useState(false);
   const [lobbyOpen, setLobbyOpen] = useState(false);
+  // Option A: the portal is the front door — shown on every visit (page
+  // load) to '/'. Session-only flag: once the player enters, refreshing
+  // at '/world' keeps them in the world instead of bouncing them back.
+  const [portalEntered, setPortalEntered] = useState(false);
   const activeUserId = profile?.id ?? null;
 
-  // Stable guest id: generating it inline during render would hand a fresh
-  // id to MmorpgApp on every state change, re-initialising the whole Pixi
-  // world (character respawn) each time the lobby popup toggles.
-  const guestIdRef = useRef<string | null>(null);
-  if (!guestIdRef.current) guestIdRef.current = generateGuestId();
-  const worldGuestId = activeUserId || guestIdRef.current;
+  // Identity-stable world seed: signed-in accounts use their account id;
+  // guests use a guest id persisted in localStorage (created once). This
+  // MUST match the seed the landing page preview uses, so the character
+  // that lands in the world is exactly the one the player saw.
+  const worldGuestId = getSessionCharacterSeed(profile);
 
   // If user is logged in and has a display name, sync it
   useEffect(() => {
@@ -372,16 +376,19 @@ export function App() {
   }
 
   // ============================================================
-  // PORTAL LANDING — First-time entry
-  // Spinning tunnel vortex with character name + social login.
-  // After name is set, character drops into the tunnel as portal
-  // to the world at '/world'.
+  // PORTAL LANDING — The front door, shown on EVERY visit to '/'
+  // (Option A). Cloud tunnel flight with identity-locked hero
+  // character, name entry (pre-filled for returning players) and
+  // social/email login. Also shown on any route when no name is
+  // set. After entering, the character drops into the world.
   // ============================================================
-  if (!playerName) {
+  const showPortal = !playerName || (pathname === '/' && !portalEntered);
+  if (showPortal) {
     return (
       <PortalLandingPage
         onEnterWorld={(name) => {
           setPlayerName(name);
+          setPortalEntered(true);
           // Redirect to /world after portal drop animation
           window.history.replaceState({}, '', '/world');
         }}
@@ -470,8 +477,4 @@ export function App() {
       <ToastContainer />
     </>
   );
-}
-
-function generateGuestId(): string {
-  return 'guest_' + Math.random().toString(36).substring(2, 10);
 }

@@ -59,6 +59,9 @@ interface AuthContextValue {
   signInWithFacebook: () => Promise<void>;
   signInWithDiscord: () => Promise<void>;
   signInWithGitHub: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  /** Returns true when a session started immediately (no email confirmation needed). */
+  signUpWithEmail: (email: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   updateDisplayName: (nextName: string) => Promise<void>;
   dismissNotice: () => void;
@@ -489,6 +492,56 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }
 
+  async function signInWithEmail(email: string, password: string) {
+    setError('');
+    setNotice(null);
+    if (!supabase) {
+      const message = 'Add Supabase credentials to enable email login.';
+      setError(message);
+      setNotice({ tone: 'info', message });
+      return;
+    }
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError) {
+      setError(signInError.message);
+      setNotice({ tone: 'error', message: signInError.message });
+      throw signInError;
+    }
+    // Profile hydration happens via onAuthStateChange — nothing else to do.
+  }
+
+  async function signUpWithEmail(email: string, password: string): Promise<boolean> {
+    setError('');
+    setNotice(null);
+    if (!supabase) {
+      const message = 'Add Supabase credentials to enable email signup.';
+      setError(message);
+      setNotice({ tone: 'info', message });
+      return false;
+    }
+
+    const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+    if (signUpError) {
+      setError(signUpError.message);
+      setNotice({ tone: 'error', message: signUpError.message });
+      throw signUpError;
+    }
+
+    if (!data.session) {
+      // Email confirmation required (Supabase project setting) — the user
+      // must confirm via their inbox before a session can start.
+      setNotice({
+        tone: 'info',
+        message: 'Account created — check your inbox to confirm your email, then log in.',
+      });
+      return false;
+    }
+
+    setNotice({ tone: 'success', message: 'Account created — you are signed in.' });
+    return true;
+  }
+
   async function signOut() {
     setError('');
 
@@ -595,6 +648,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     signInWithFacebook: () => signInWithOAuth('facebook'),
     signInWithDiscord: () => signInWithOAuth('discord'),
     signInWithGitHub: () => signInWithOAuth('github'),
+    signInWithEmail,
+    signUpWithEmail,
     signOut,
     updateDisplayName,
     dismissNotice: () => setNotice(null),
